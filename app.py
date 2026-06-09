@@ -1053,16 +1053,26 @@ def rekaman_challenge_section():
         col_space1, col_btn, col_space3 = st.columns([1, 1, 1])
         with col_btn:
             if st.button("🔄 Reset Rekaman", key="reset_human", use_container_width=True):
+                # 1. Hapus file audio temporary
                 for key in ['human1_audio', 'human2_audio']:
-                    if st.session_state[key]:
+                    if st.session_state.get(key):
                         try: os.remove(st.session_state[key][0])
                         except: pass
+                
+                # 2. Reset variabel status kustom
                 st.session_state.human1_audio     = None
                 st.session_state.human2_audio     = None
                 st.session_state.human1_processed = False
                 st.session_state.human2_processed = False
+                
+                # 3. Hapus memori bawaan widget audio agar antarmukanya ikut kosong
+                if "human1_input" in st.session_state:
+                    del st.session_state["human1_input"]
+                if "human2_input" in st.session_state:
+                    del st.session_state["human2_input"]
+                    
+                # 4. Muat ulang halaman
                 st.rerun()
-
 
 rekaman_challenge_section()
 
