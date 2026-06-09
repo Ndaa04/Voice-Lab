@@ -19,8 +19,8 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;600;700&display=swap');
 
     .stApp {
-        background: #FFFFFF;
-        color: #1A1A2E;
+        background: var(--background-color);
+        color: var(--text-color);
         font-family: 'Comfortaa', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     .stApp::after {
@@ -33,7 +33,7 @@ st.markdown("""
         z-index: 0;
     }
     [data-testid="stSidebar"] {
-        background: #F5F7FA !important;
+        background: var(--secondary-background-color) !important;
         border-right: 1px solid rgba(0,180,100,0.15);
     }
     [data-testid="stSidebar"]::before {
