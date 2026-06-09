@@ -37,10 +37,16 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-.stApp { background:#060A12; color:#C8D4E8; font-family:'Comfortaa',sans-serif; }
-
+.stApp { 
+    background: var(--background-color); 
+    color: var(--text-color); 
+    font-family: 'Comfortaa', sans-serif; 
+}
 /* Sidebar */
-[data-testid="stSidebar"] { background:#080E18 !important; border-right:1px solid rgba(0,230,120,0.10); }
+[data-testid="stSidebar"] { 
+    background: var(--secondary-background-color) !important; 
+    border-right: 1px solid rgba(0,230,120,0.10); 
+}
 [data-testid="stSidebar"]::before {
     content:''; position:absolute; top:0; left:0; right:0; height:3px;
     background:linear-gradient(90deg,#00E676,#00B4D8,#7C3AED);
