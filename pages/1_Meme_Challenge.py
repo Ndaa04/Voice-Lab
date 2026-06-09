@@ -36,7 +36,11 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 /* ── Base ── */
-.stApp { background:#05090F; color:#BDC8DC; font-family:'Comfortaa',sans-serif; }
+.stApp { 
+    background: var(--background-color); 
+    color: var(--text-color); 
+    font-family: 'Comfortaa', sans-serif; 
+}
 .main .block-container { padding-top:1.6rem; max-width:1200px; }
 
 /* ── Headings ── */
@@ -301,7 +305,10 @@ hr { border:none !important; border-top:1px solid rgba(255,255,255,.05) !importa
 }
 
 /* Sidebar */
-[data-testid="stSidebar"] { background:#070D17 !important; border-right:1px solid rgba(0,220,110,.08); }
+[data-testid="stSidebar"] { 
+    background: var(--secondary-background-color) !important; 
+    border-right: 1px solid rgba(0,230,120,0.10); 
+}
 </style>
 """, unsafe_allow_html=True)
 
