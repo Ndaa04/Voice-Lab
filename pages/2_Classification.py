@@ -591,10 +591,10 @@ def proses_ml_fragment():
     </div>
     """, unsafe_allow_html=True)
 
-    col_run, _ = st.columns([3, 5])
-    with col_run:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
         run_btn = st.button("⚡ Eksekusi Model & Visualisasi 3D", key="run_analysis", use_container_width=True)
-
+        
     # Hanya berjalan saat tombol diklik
     if run_btn:
         with st.spinner("⏳ Memproses audio, mengekstrak MFCC, dan melatih AI..."):
