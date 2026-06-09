@@ -23,7 +23,7 @@ st.set_page_config(
 # ══════════════════════════════════════════════
 #  DIRECTORIES
 # ══════════════════════════════════════════════
-MEMES_DIR      = Path("memes")
+MEMES_DIR      = Path("Memes")
 LEADERBOARD_DIR = Path("leaderboards")
 MEMES_DIR.mkdir(exist_ok=True)
 LEADERBOARD_DIR.mkdir(exist_ok=True)
