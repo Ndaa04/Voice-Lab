@@ -509,22 +509,16 @@ if st.session_state.selected_meme is None:
                     ext = meme['image'].suffix.lower().lstrip('.')
                     img_mime = {'jpg':'jpeg','jpeg':'jpeg','png':'png',
                                 'webp':'webp','gif':'gif'}.get(ext,'jpeg')
-                    cover_html = f"""
-                    <img src="data:image/{img_mime};base64,{img_b64}"
-                         style="width:100%;height:180px;object-fit:cover;display:block;
-                                border-radius:12px 12px 0 0">"""
+                    cover_html = f"""<img src="data:image/{img_mime};base64,{img_b64}"style="width:100%;height:180px;object-fit:cover;display:block;border-radius:12px 12px 0 0">"""
                 else:
                     # Waveform + animated bars (no image)
                     wf_part = (f'<img src="data:image/png;base64,{wf_b64}" '
                                f'style="width:90%;opacity:.5;margin-bottom:.4rem">'
                                if wf_b64 else '')
-                    cover_html = f"""
-                    <div style="height:180px;background:#080E18;border-radius:12px 12px 0 0;
-                                display:flex;flex-direction:column;align-items:center;
-                                justify-content:center;gap:.3rem;">
-                      {wf_part}
-                      {animated_wave_bars(16)}
-                    </div>"""
+                    cover_html = f"""<div style="height:180px;background:#080E18;border-radius:12px 12px 0 0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem;">
+{wf_part}
+{animated_wave_bars(16)}
+</div>"""
 
                 # Badge (has video / has image)
                 badges = []
@@ -533,16 +527,14 @@ if st.session_state.selected_meme is None:
                 badge_html = f'<div style="display:flex;gap:.3rem;margin-top:.3rem">{"".join(badges)}</div>' if badges else ''
 
                 st.markdown(f"""
-                <div style="background:#0C1520;border:2px solid rgba(255,255,255,.07);
-                            border-radius:13px;overflow:hidden;margin-bottom:.1rem">
-                  {cover_html}
-                  <div style="padding:.6rem .8rem .7rem">
-                    <div style="font-family:'Comfortaa',sans-serif;font-weight:700;
-                                font-size:.84rem;color:#D8E8F8;white-space:nowrap;
-                                overflow:hidden;text-overflow:ellipsis">{meme['name']}</div>
-                    {badge_html}
-                  </div>
-                </div>""", unsafe_allow_html=True)
+<div style="background:#0C1520;border:2px solid rgba(255,255,255,.07);border-radius:13px;overflow:hidden;margin-bottom:.1rem">
+{cover_html}
+<div style="padding:.6rem .8rem .7rem">
+<div style="font-family:'Comfortaa',sans-serif;font-weight:700;font-size:.84rem;color:#D8E8F8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{meme['name']}</div>
+{badge_html}
+</div>
+</div>
+""", unsafe_allow_html=True)
 
                 # Invisible button that triggers selection
                 if st.button(f"Pilih →", key=f"sel_{meme['id']}", use_container_width=True):
