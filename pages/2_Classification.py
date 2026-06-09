@@ -591,10 +591,11 @@ def proses_ml_fragment():
     </div>
     """, unsafe_allow_html=True)
 
-    col_run, _ = st.columns([3, 5])
-    with col_run:
+    # Tombol di tengah
+    col_l, col_btn, col_r = st.columns([1, 2, 1])
+    with col_btn:
         run_btn = st.button("⚡ Eksekusi Model & Visualisasi 3D", key="run_analysis", use_container_width=True)
-
+        
     # Hanya berjalan saat tombol diklik
     if run_btn:
         with st.spinner("⏳ Memproses audio, mengekstrak MFCC, dan melatih AI..."):
@@ -677,34 +678,26 @@ def proses_ml_fragment():
             # ─────────────────────────────────────────────
             st.markdown("---")
             st.markdown('<div class="spill">📊 Hasil Klasifikasi</div>', unsafe_allow_html=True)
-            st.header("Perbandingan Akurasi Model AI")
             
+            models = [("k-NN", acc_knn, col_m1), ("Random Forest", acc_rf, col_m2), ("SVM (RBF)", acc_svm, col_m3)]
             best_acc = max(acc_knn, acc_rf, acc_svm)
-            col_m1, col_m2, col_m3 = st.columns(3)
-            models = [("k-NN", "k=5, 5 tetangga terdekat", acc_knn, col_m1),
-                      ("Random Forest", "100 pohon keputusan", acc_rf, col_m2),
-                      ("SVM (RBF)", "Support Vector, kernel radial", acc_svm, col_m3)]
 
-            for name, desc, acc, col in models:
+            cols = st.columns(3)
+            for (name, acc, _), col in zip(models, cols):
                 is_best = abs(acc - best_acc) < 1e-9
-                card_cls = "model-card best" if is_best else "model-card"
-                bar_w = int(acc * 100)
-                bar_color = "#00E676" if is_best else "#00B4D8"
-                
                 best_label = '<div style="font-family:JetBrains Mono,monospace; font-size:.6rem; color:#00E676; letter-spacing:2px; margin-bottom:.5rem">🏆 TERBAIK</div>' if is_best else ''
                 
                 with col:
                     st.markdown(f"""
-<div class="{card_cls}">
+<div class="{'model-card best' if is_best else 'model-card'}">
 {best_label}
-<div style="font-family:'Comfortaa',sans-serif; font-weight:700; font-size:1.05rem; color:#E0EAF8; margin-bottom:.2rem">{name}</div>
-<div style="font-family:'JetBrains Mono',monospace; font-size:.65rem; color:#3A4A60; margin-bottom:.8rem">{desc}</div>
-<div style="font-family:'Comfortaa',sans-serif; font-weight:800; font-size:2rem; color:{bar_color}; margin-bottom:.6rem">{acc*100:.1f}%</div>
-<div style="background:rgba(255,255,255,.05); border-radius:999px; height:6px; overflow:hidden">
-<div style="width:{bar_w}%; height:100%; background:linear-gradient(90deg,{bar_color},{bar_color}88); border-radius:999px; transition:width .8s ease"></div>
-</div>
+<div style="font-size:1.05rem; font-weight:700; color:#E0EAF8">{name}</div>
+<div style="font-size:2rem; font-weight:800; color:{'#00E676' if is_best else '#00B4D8'}">{acc*100:.1f}%</div>
 </div>
 """, unsafe_allow_html=True)
+
+# Panggil fungsinya
+proses_ml_fragment()
             
             best_name = [n for n,_,a,_ in models if abs(a-best_acc)<1e-9][0]
             st.success(f"🏆 Sistem merekomendasikan **{best_name}** sebagai algoritma paling cerdas dengan akurasi **{best_acc*100:.1f}%** untuk data ini.")
