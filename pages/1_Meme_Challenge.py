@@ -287,6 +287,23 @@ hr { border:none !important; border-top:1px solid rgba(255,255,255,.05) !importa
 ::-webkit-scrollbar-track { background:#05090F; }
 ::-webkit-scrollbar-thumb { background:rgba(0,220,110,.15); border-radius:3px; }
 [data-testid="stSidebar"] { background:#070D17 !important; border-right:1px solid rgba(0,220,110,.08); }
+
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--secondary-background-color) !important;
+    border-radius: 13px !important;
+    border: 1px solid rgba(130, 130, 130, 0.2) !important;
+}
+    
+/* Mengembalikan warna garis kiri (border-left) dengan trik :has() */
+[data-testid="stVerticalBlockBorderWrapper"]:has(.pill-ref) {
+    border-left: 3px solid #00DC6E !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(.pill-rec) {
+    border-left: 3px solid #00B4D8 !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"]:has(.pill-lb) {
+    border-left: 3px solid #A78BFA !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -512,10 +529,9 @@ else:
     col_ref, col_rec, col_lb = st.columns([1.1, 1.1, 1])
 
     with col_ref:
-        st.markdown('<div class="card card-green">', unsafe_allow_html=True)
-        st.markdown('<div class="pill">📢 Referensi</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.95rem;color:#D8E8F8;margin-bottom:.7rem">{meme["name"]}</div>', unsafe_allow_html=True)
-
+        with st.container(border=True):
+            st.markdown('<div class="pill pill-ref">📢 Referensi</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.95rem;color:#D8E8F8;margin-bottom:.7rem">{meme["name"]}</div>', unsafe_allow_html=True)
         try:
             y_ref, sr_ref = librosa.load(str(meme['audio']), sr=16000, duration=5.0)
             fig_r, ax_r = plt.subplots(figsize=(4, 1.5))
@@ -548,9 +564,9 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_rec:
-        st.markdown('<div class="card card-blue">', unsafe_allow_html=True)
-        st.markdown('<div class="pill">🎙️ Rekam Suaramu</div>', unsafe_allow_html=True)
-
+        with st.container(border=True):
+            st.markdown('<div class="pill pill-rec">🎙️ Rekam Suaramu</div>', unsafe_allow_html=True)
+            
         method = st.radio("Metode:", ["FastDTW", "DTW standar"], horizontal=True, key="dtw_method", label_visibility="collapsed")
         user_audio = st.audio_input("Klik mikrofon, lalu tirukan suara meme:", key="rec_input")
 
@@ -611,10 +627,9 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_lb:
-        st.markdown('<div class="card card-purple">', unsafe_allow_html=True)
-        st.markdown('<div class="pill">🏆 Leaderboard</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.88rem;color:#8A9BB8;margin-bottom:.8rem">{meme["name"]}</div>', unsafe_allow_html=True)
-
+        with st.container(border=True):
+            st.markdown('<div class="pill pill-lb">🏆 Leaderboard</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.88rem;color:#8A9BB8;margin-bottom:.8rem">{meme["name"]}</div>', unsafe_allow_html=True)      
         df_lb = load_lb(meme['id'])
         if df_lb.empty:
             st.markdown("""<div style="text-align:center;padding:2rem 1rem"><div style="font-size:2rem">🏅</div><div style="font-family:JetBrains Mono,monospace;font-size:.65rem;color:#1E2E48">Belum ada skor. Jadilah yang pertama!</div></div>""", unsafe_allow_html=True)
