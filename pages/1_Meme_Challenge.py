@@ -429,8 +429,8 @@ def load_lb(meme_id: str) -> pd.DataFrame:
     return pd.DataFrame(columns=['name','score','method','timestamp'])
 
 def save_lb(meme_id: str, df: pd.DataFrame):
-    # ascending=True: nilai DTW terkecil = terbaik
-    df = df.sort_values('score', ascending=True).head(15).reset_index(drop=True)
+    # ascending=False: nilai terbesar = terbaik
+    df = df.sort_values('score', ascending=False).head(15).reset_index(drop=True)
     df.to_csv(LEADERBOARD_DIR / f"{meme_id}.csv", index=False)
     return df
 
@@ -571,7 +571,6 @@ else:
 
     # ── PANEL REFERENSI ──────────────────────────────
     with col_ref:
-        st.markdown('<div class="panel-box green">', unsafe_allow_html=True)
         st.markdown('<div class="pill">📢 Referensi</div>', unsafe_allow_html=True)
         st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.95rem;color:#D8E8F8;margin-bottom:.7rem">{meme["name"]}</div>', unsafe_allow_html=True)
 
@@ -579,8 +578,8 @@ else:
             y_ref, sr_ref = librosa.load(str(meme['audio']), sr=16000, duration=5.0)
             fig_r, ax_r = plt.subplots(figsize=(4, 1.4))
             BG = '#080E18'
-            fig_r.patch.set_facecolor(BG)
-            ax_r.set_facecolor(BG)
+            fig_r.patch.set_facecolor('#0C1520')        
+            ax_r.set_facecolor('#0C1520')
             t = np.linspace(0, len(y_ref)/sr_ref, len(y_ref))
             ax_r.plot(t, y_ref, color='#00DC6E', linewidth=.8)
             ax_r.fill_between(t, y_ref, alpha=.15, color='#00DC6E')
@@ -610,11 +609,8 @@ else:
             if st.session_state.get('show_video', False):
                 st.video(str(meme['video']))
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
     # ── PANEL REKAM ──────────────────────────────────
     with col_rec:
-        st.markdown('<div class="panel-box blue">', unsafe_allow_html=True)
         st.markdown('<div class="pill">🎙️ Rekam Suaramu</div>', unsafe_allow_html=True)
 
         user_audio = st.audio_input("Klik mikrofon, lalu tirukan suara meme:", key="rec_input")
@@ -627,7 +623,7 @@ else:
                 f.write(user_audio.getbuffer())
 
             with st.spinner("Menghitung skor…"):
-                           score, err_msg = compute_score(str(meme['audio']), tmp_path)
+                score, error_msg = compute_score(str(meme['audio']), tmp_path)
 
             if score is not None:
                 sc  = score_color(score)
@@ -670,11 +666,8 @@ else:
             st.success(f"✅ Skor **{st.session_state.get('last_score',0):.0f}** atas nama **{st.session_state.get('last_name','')}** tersimpan!")
             st.session_state.lb_submitted = False
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
     # ── PANEL LEADERBOARD ────────────────────────────
     with col_lb:
-        st.markdown('<div class="panel-box purple">', unsafe_allow_html=True)
         st.markdown('<div class="pill">🏆 Leaderboard</div>', unsafe_allow_html=True)
         st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.88rem;color:#8A9BB8;margin-bottom:.8rem">{meme["name"]}</div>', unsafe_allow_html=True)
 
@@ -683,15 +676,13 @@ else:
             st.markdown("""<div style="text-align:center;padding:2rem 1rem"><div style="font-size:2rem">🏅</div><div style="font-family:JetBrains Mono,monospace;font-size:.65rem;color:#1E2E48">Belum ada skor. Jadilah yang pertama!</div></div>""", unsafe_allow_html=True)
         else:
             # Tampilkan ascending: terkecil = terbaik
-            df_show = df_lb.sort_values('score', ascending=True).head(10).reset_index(drop=True)
+            df_show = df_lb.sort_values('score', ascending=False).head(10).reset_index(drop=True)
             for i, row in df_show.iterrows():
                 icon = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
                 cls  = {0:"gold",1:"silver",2:"bronze"}.get(i, "")
                 sc   = score_color(row['score'])
                 mth  = str(row.get('method','DTW'))[:7]
                 st.markdown(f"""<div class="lb-row"><div class="lb-rank {cls}">{icon}</div><div class="lb-name">{row['name']}</div><div class="lb-score" style="color:{sc}">{row['score']:.0f}</div><div class="lb-method">{mth}</div></div>""", unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown('<div style="text-align:center;padding:.5rem 0"><span style="font-family:JetBrains Mono,monospace;font-size:.58rem;color:#10181F;letter-spacing:3px">Meme Voice Challenge · Voice Lab</span></div>', unsafe_allow_html=True)
