@@ -347,36 +347,77 @@ def get_mfcc_seq(path_str: str):
         st.error(f"MFCC error: {e}")
         return None
 
-def compute_dtw_raw(ref, test):
-    """Return raw FastDTW distance. Smaller = more similar."""
-    if ref is None or test is None:
-        return None
+def noise_reduce(y, sr):
+    """Sederhana: spectral gating — kurangi frame yang energinya di bawah threshold."""
     try:
-        raw_dist, _ = fastdtw(ref, test, dist=cosine)
-        return float(raw_dist)
-    except Exception as e:
-        st.error(f"DTW error: {e}")
-        return None
+        # Hitung energy per frame
+        S = np.abs(librosa.stft(y))
+        noise_floor = np.percentile(S, 20, axis=1, keepdims=True)
+        mask = S > (noise_floor * 1.5)
+        S_clean = S * mask
+        # Reconstruct dengan phase asli
+        _, phase = librosa.magphase(librosa.stft(y))
+        y_clean = librosa.istft(S_clean * phase)
+        return y_clean
+    except:
+        return y
 
-# Threshold untuk DTW raw cosine distance:
-# 0-15  → sangat mirip (hijau)
-# 15-35 → lumayan (kuning)
-# >35   → jauh (merah)
+def compute_score(ref_path: str, user_path: str):
+    """
+    Hitung skor kemiripan 0–100.
+    Pipeline: load → noise reduce → MFCC 20 koef → normalize per-koef → FastDTW cosine
+    Skor = max(0, 100 - dtw_raw * 1.5)  → makin mirip makin tinggi
+    """
+    try:
+        y_ref,  sr = librosa.load(ref_path,  sr=16000)
+        y_user, _  = librosa.load(user_path, sr=16000)
+
+        # Noise reduction
+        y_ref  = noise_reduce(y_ref,  sr)
+        y_user = noise_reduce(y_user, sr)
+
+        # Trim silence
+        y_ref,  _ = librosa.effects.trim(y_ref,  top_db=20)
+        y_user, _ = librosa.effects.trim(y_user, top_db=20)
+
+        if len(y_ref) < sr * 0.2 or len(y_user) < sr * 0.2:
+            return None, "Audio terlalu pendek setelah trimming."
+
+        # MFCC 20 koefisien
+        def mfcc_norm(y):
+            m = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
+            mu = np.mean(m, axis=1, keepdims=True)
+            sd = np.std(m,  axis=1, keepdims=True) + 1e-8
+            return ((m - mu) / sd).T  # (frames, 20)
+
+        seq_ref  = mfcc_norm(y_ref)
+        seq_user = mfcc_norm(y_user)
+
+        dtw_raw, _ = fastdtw(seq_ref, seq_user, dist=cosine)
+        dtw_raw = float(dtw_raw)
+
+        # Normalisasi ke skor 0–100 (clamp)
+        # Empiris: dtw ~0 = sempurna, dtw ~65 = sangat berbeda
+        score = max(0.0, min(100.0, 100.0 - dtw_raw * 1.5))
+        return round(score, 1), None
+    except Exception as e:
+        return None, str(e)
+
 def score_color(s):
-    if s <= 15.0:  return "#00DC6E"
-    if s <= 35.0:  return "#FFD060"
+    """s = skor 0-100, makin tinggi makin bagus."""
+    if s >= 75: return "#00DC6E"
+    if s >= 45: return "#FFD060"
     return "#FF6060"
 
 def score_label(s):
-    if s <= 15.0:  return ("🏆 Luar biasa! Sangat mirip!", "success")
-    if s <= 35.0:  return ("✅ Bagus! Cukup mirip.", "success")
-    if s <= 55.0:  return ("🔊 Lumayan, coba lagi.", "info")
+    if s >= 80: return ("🏆 Luar biasa! Sangat mirip!", "success")
+    if s >= 60: return ("✅ Bagus! Cukup mirip.", "success")
+    if s >= 40: return ("🔊 Lumayan, coba lagi.", "info")
     return ("😅 Masih jauh, coba ulang!", "warning")
 
-# Untuk score ring: makin kecil DTW makin penuh.
-# Kita clamp di [0, 100] lalu invert: ring_pct = max(0, 1 - score/100)
 def score_ring_pct(s):
-    return max(0.0, 1.0 - s / 100.0)
+    """s = 0-100 → 0.0-1.0 untuk ring."""
+    return s / 100.0
 
 def load_lb(meme_id: str) -> pd.DataFrame:
     f = LEADERBOARD_DIR / f"{meme_id}.csv"
@@ -523,7 +564,7 @@ else:
     <div style="background:linear-gradient(135deg,#0A1820,#060D16);border:1px solid rgba(0,220,110,.12);border-radius:16px;padding:1.4rem 1.8rem;margin-bottom:1.4rem">
       <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;color:#00DC6E;letter-spacing:2px">🎤 Meme Challenge</div>
       <div style="font-family:'Comfortaa',sans-serif;font-weight:700;font-size:1.5rem;color:#fff">{meme['name']}</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">Skor = DTW raw distance · Makin kecil = makin mirip 🎯</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">Skor 0–100 · Makin tinggi = makin mirip suara meme 🎯</div>
     </div>""", unsafe_allow_html=True)
 
     col_ref, col_rec, col_lb = st.columns([1.1, 1.1, 1])
@@ -536,16 +577,20 @@ else:
 
         try:
             y_ref, sr_ref = librosa.load(str(meme['audio']), sr=16000, duration=5.0)
-            fig_r, ax_r = plt.subplots(figsize=(4, 1.5))
-            fig_r.patch.set_facecolor('none')        # background figure transparan
-            ax_r.set_facecolor('none')               # background axes transparan
+            fig_r, ax_r = plt.subplots(figsize=(4, 1.4))
+            BG = '#080E18'
+            fig_r.patch.set_facecolor(BG)
+            ax_r.set_facecolor(BG)
             t = np.linspace(0, len(y_ref)/sr_ref, len(y_ref))
-            ax_r.plot(t, y_ref, color='#00DC6E', linewidth=.9)
-            ax_r.fill_between(t, y_ref, alpha=.12, color='#00DC6E')
-            ax_r.tick_params(colors='#3C5070')
+            ax_r.plot(t, y_ref, color='#00DC6E', linewidth=.8)
+            ax_r.fill_between(t, y_ref, alpha=.15, color='#00DC6E')
             ax_r.set_xticks([]); ax_r.set_yticks([])
             for sp in ax_r.spines.values(): sp.set_visible(False)
-            st.pyplot(fig_r, use_container_width=True, transparent=True)
+            fig_r.tight_layout(pad=0)
+            buf = io.BytesIO()
+            fig_r.savefig(buf, format='png', facecolor=BG, bbox_inches='tight', pad_inches=0)
+            buf.seek(0)
+            st.image(buf, use_container_width=True)
             plt.close(fig_r)
             st.caption(f"Durasi: {len(y_ref)/sr_ref:.1f}s  ·  SR: {sr_ref} Hz")
         except Exception as e:
@@ -582,9 +627,7 @@ else:
                 f.write(user_audio.getbuffer())
 
             with st.spinner("Menghitung skor…"):
-                seq_ref  = get_mfcc_ref(str(meme['audio']))
-                seq_user = get_mfcc_seq(tmp_path)
-                score    = compute_dtw_raw(seq_ref, seq_user)
+                           score, err_msg = compute_score(str(meme['audio']), tmp_path)
 
             if score is not None:
                 sc  = score_color(score)
@@ -594,9 +637,9 @@ else:
                 st.markdown(f"""
                 <div class="score-ring-wrap" style="margin:1rem 0">
                   <div class="score-ring" style="--c:{sc};--pct:{deg}deg">
-                    <div class="score-ring-val" style="color:{sc}">{score:.2f}</div>
+                    <div class="score-ring-val" style="color:{sc}">{score:.0f}</div>
                   </div>
-                  <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">DTW DISTANCE (↓ makin bagus)</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">SKOR KEMIRIPAN (0-100)</div>
                 </div>""", unsafe_allow_html=True)
 
                 msg, kind = score_label(score)
@@ -618,13 +661,13 @@ else:
                     st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.error("Gagal menghitung skor. Pastikan rekaman minimal 0.5 detik.")
+                st.error(f"Gagal menghitung skor: {err_msg}. Pastikan rekaman minimal 0.5 detik.")
 
             try: os.remove(tmp_path)
             except: pass
 
         if st.session_state.get('lb_submitted'):
-            st.success(f"✅ Skor **{st.session_state.get('last_score',0):.2f}** atas nama **{st.session_state.get('last_name','')}** tersimpan!")
+            st.success(f"✅ Skor **{st.session_state.get('last_score',0):.0f}** atas nama **{st.session_state.get('last_name','')}** tersimpan!")
             st.session_state.lb_submitted = False
 
         st.markdown('</div>', unsafe_allow_html=True)
@@ -646,7 +689,7 @@ else:
                 cls  = {0:"gold",1:"silver",2:"bronze"}.get(i, "")
                 sc   = score_color(row['score'])
                 mth  = str(row.get('method','DTW'))[:7]
-                st.markdown(f"""<div class="lb-row"><div class="lb-rank {cls}">{icon}</div><div class="lb-name">{row['name']}</div><div class="lb-score" style="color:{sc}">{row['score']:.2f}</div><div class="lb-method">{mth}</div></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="lb-row"><div class="lb-rank {cls}">{icon}</div><div class="lb-name">{row['name']}</div><div class="lb-score" style="color:{sc}">{row['score']:.0f}</div><div class="lb-method">{mth}</div></div>""", unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
