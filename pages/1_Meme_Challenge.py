@@ -346,20 +346,13 @@ def get_mfcc_seq(path_str: str):
 
 def compute_sim(ref, test, method="FastDTW"):
     if ref is None or test is None:
-        return 0.0
+        return float('inf') # Kembalikan nilai tak terhingga jika gagal
     
-    # Menggunakan Cosine Distance agar kebal terhadap perbedaan volume (loudness)
-    dist, _ = fastdtw(ref, test, dist=cosine)
+    # Menghitung jarak FastDTW mentah (raw) menggunakan Cosine
+    raw_dist, _ = fastdtw(ref, test, dist=cosine)
     
-    # Normalisasi jarak berdasarkan panjang frame
-    avg_len = (len(ref) + len(test)) / 2
-    nd = dist / avg_len
-    
-    # Cosine distance memiliki rentang nilai yang kecil. 
-    # Kita kalikan faktor pengali (misal: 6.0) agar skornya tersebar logis (0.0 - 1.0)
-    score = np.exp(-nd * 6.0) 
-    
-    return float(np.clip(score, 0.0, 1.0))
+    # Langsung kembalikan nilai DTW Raw
+    return float(raw_dist)
 
 def load_lb(meme_id: str) -> pd.DataFrame:
     f = LEADERBOARD_DIR / f"{meme_id}.csv"
@@ -371,14 +364,17 @@ def load_lb(meme_id: str) -> pd.DataFrame:
     return pd.DataFrame(columns=['name','score','method','timestamp'])
 
 def save_lb(meme_id: str, df: pd.DataFrame):
-    df = df.sort_values('score', ascending=False).head(15).reset_index(drop=True)
+    # REVISI: ascending=True karena nilai raw DTW terkecil adalah yang terbaik
+    df = df.sort_values('score', ascending=True).head(15).reset_index(drop=True)
     df.to_csv(LEADERBOARD_DIR / f"{meme_id}.csv", index=False)
     return df
 
 def score_color(s):
-    if s >= 0.7: return "#00DC6E"
-    if s >= 0.4: return "#FFD060"
-    return "#FF6060"
+    # REVISI: Karena raw DTW, semakin kecil semakin hijau
+    # Angka threshold ini bisa kamu sesuaikan sendiri nanti
+    if s <= 20.0: return "#00DC6E" # Hijau (Bagus sekali)
+    if s <= 45.0: return "#FFD060" # Kuning (Lumayan)
+    return "#FF6060"               # Merah (Kurang mirip)
 
 # ══════════════════════════════════════════════
 #  SESSION STATE
