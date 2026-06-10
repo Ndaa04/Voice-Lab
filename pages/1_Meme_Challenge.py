@@ -319,7 +319,21 @@ def animated_wave_bars(n=24):
         bars += f'<div class="wave-bar" style="height:{h}px;animation-delay:{d:.2f}s"></div>'
     return f'<div class="wave-visual">{bars}</div>'
 
-@st.cache_data
+@st.cache_data  # hanya untuk file referensi (path stabil)
+def get_mfcc_ref(path_str: str):
+    try:
+        y, sr = librosa.load(path_str, sr=16000)
+        if len(y) < sr * 0.3:
+            return None
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        mu = np.mean(mfcc, axis=1, keepdims=True)
+        sd = np.std(mfcc, axis=1, keepdims=True) + 1e-8
+        return ((mfcc - mu) / sd).T
+    except Exception as e:
+        st.error(f"MFCC error: {e}")
+        return None
+
+# TANPA cache — dipanggil setiap rekaman baru
 def get_mfcc_seq(path_str: str):
     try:
         y, sr = librosa.load(path_str, sr=16000)
@@ -562,12 +576,13 @@ else:
 
         if user_audio is not None:
             st.audio(user_audio, format="audio/wav")
-            tmp_path = f"_tmp_{meme['id']}.wav"
+            # Nama unik tiap rekaman agar cache tidak mengganggu
+            tmp_path = f"_tmp_{meme['id']}_{int(time.time()*1000)}.wav"
             with open(tmp_path, "wb") as f:
                 f.write(user_audio.getbuffer())
 
             with st.spinner("Menghitung skor…"):
-                seq_ref  = get_mfcc_seq(str(meme['audio']))
+                seq_ref  = get_mfcc_ref(str(meme['audio']))
                 seq_user = get_mfcc_seq(tmp_path)
                 score    = compute_dtw_raw(seq_ref, seq_user)
 
