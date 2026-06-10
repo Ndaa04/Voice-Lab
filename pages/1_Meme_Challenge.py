@@ -7,8 +7,8 @@ import librosa.display
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
+from scipy.spatial.distance import cosine
 from fastdtw import fastdtw
-from scipy.spatial.distance import euclidean
 from pathlib import Path
 import pandas as pd
 import io
@@ -347,10 +347,19 @@ def get_mfcc_seq(path_str: str):
 def compute_sim(ref, test, method="FastDTW"):
     if ref is None or test is None:
         return 0.0
-    dist, _ = fastdtw(ref, test, dist=euclidean)
+    
+    # Menggunakan Cosine Distance agar kebal terhadap perbedaan volume (loudness)
+    dist, _ = fastdtw(ref, test, dist=cosine)
+    
+    # Normalisasi jarak berdasarkan panjang frame
     avg_len = (len(ref) + len(test)) / 2
     nd = dist / avg_len
-    return float(np.exp(-nd))
+    
+    # Cosine distance memiliki rentang nilai yang kecil. 
+    # Kita kalikan faktor pengali (misal: 6.0) agar skornya tersebar logis (0.0 - 1.0)
+    score = np.exp(-nd * 6.0) 
+    
+    return float(np.clip(score, 0.0, 1.0))
 
 def load_lb(meme_id: str) -> pd.DataFrame:
     f = LEADERBOARD_DIR / f"{meme_id}.csv"
