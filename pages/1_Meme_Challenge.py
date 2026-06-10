@@ -21,17 +21,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# ══════════════════════════════════════════════
-#  DIRECTORIES
-# ══════════════════════════════════════════════
 MEMES_DIR = Path("memes")
 LEADERBOARD_DIR = Path("leaderboards")
 MEMES_DIR.mkdir(exist_ok=True)
 LEADERBOARD_DIR.mkdir(exist_ok=True)
 
-# ══════════════════════════════════════════════
-#  CSS — Dark audio-studio aesthetic
-# ══════════════════════════════════════════════
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -57,7 +51,6 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     color:#00DC6E; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:.5rem;
 }
 
-/* Card */
 .meme-card {
     background:#0C1520; border:2px solid rgba(255,255,255,.07);
     border-radius:16px; overflow:hidden; cursor:pointer;
@@ -72,7 +65,6 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
 .meme-card:hover .wave-bar { animation-play-state:running; }
 .meme-card:not(:hover) .wave-bar { animation-play-state:paused; }
 
-/* Waveform / gambar area */
 .waveform-container {
     height:100px;
     background:#080E18;
@@ -89,7 +81,6 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     border-radius:12px 12px 0 0;
 }
 
-/* Footer */
 .meme-footer {
     display: flex;
     flex-direction: column;
@@ -110,7 +101,7 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     overflow-wrap: break-word;
     max-width: 100%;
     margin-bottom: 0.2rem;
-    text-align: center !important;  /* ← tambahkan !important */
+    text-align: center !important;
 }
             
 .badge-wrapper {
@@ -136,7 +127,6 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     color:#00B4D8;
 }
 
-/* Tombol umum */
 .stButton > button {
     background:linear-gradient(135deg,#00C060,#008A40) !important;
     color:#030810 !important;
@@ -173,7 +163,6 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     color:#C8D8EE !important;
 }
 
-/* Animated wave bars */
 .wave-visual {
     display:flex;
     align-items:center;
@@ -194,16 +183,6 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     to   { transform:scaleY(1);  opacity:1;  }
 }
 
-/* Challenge cards */
-.card {
-    background:#0C1520; border:1px solid rgba(255,255,255,.06);
-    border-radius:13px; padding:1.1rem 1.3rem; height:100%;
-}
-.card-green  { border-left:3px solid #00DC6E; }
-.card-blue   { border-left:3px solid #00B4D8; }
-.card-purple { border-left:3px solid #A78BFA; }
-
-/* Metric dan score ring */
 [data-testid="stMetric"] {
     background:#0C1520 !important;
     border:1px solid rgba(255,255,255,.05) !important;
@@ -259,7 +238,6 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     color:#1E2E48; letter-spacing:1px; text-transform:uppercase; flex-shrink:0;
 }
 
-/* Radio */
 [data-testid="stRadio"] > div { gap:.5rem !important; }
 [data-testid="stRadio"] label {
     background:#0C1520; border:1px solid rgba(255,255,255,.07);
@@ -272,7 +250,6 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     background:#091810 !important; color:#00DC6E !important;
 }
 
-/* Audio input */
 [data-testid="stAudioInput"] > div {
     background:#0C1520 !important;
     border:1px solid rgba(255,255,255,.08) !important;
@@ -288,22 +265,17 @@ hr { border:none !important; border-top:1px solid rgba(255,255,255,.05) !importa
 ::-webkit-scrollbar-thumb { background:rgba(0,220,110,.15); border-radius:3px; }
 [data-testid="stSidebar"] { background:#070D17 !important; border-right:1px solid rgba(0,220,110,.08); }
 
-[data-testid="stVerticalBlockBorderWrapper"] {
-    background: var(--secondary-background-color) !important;
-    border-radius: 13px !important;
-    border: 1px solid rgba(130, 130, 130, 0.2) !important;
+/* Panel challenge — tanpa border wrapper ganda */
+.panel-box {
+    background:#0C1520;
+    border-radius:13px;
+    border:1px solid rgba(255,255,255,.08);
+    padding:1rem 1.1rem;
+    height:100%;
 }
-    
-/* Mengembalikan warna garis kiri (border-left) dengan trik :has() */
-[data-testid="stVerticalBlockBorderWrapper"]:has(.pill-ref) {
-    border-left: 3px solid #00DC6E !important;
-}
-[data-testid="stVerticalBlockBorderWrapper"]:has(.pill-rec) {
-    border-left: 3px solid #00B4D8 !important;
-}
-[data-testid="stVerticalBlockBorderWrapper"]:has(.pill-lb) {
-    border-left: 3px solid #A78BFA !important;
-}
+.panel-box.green  { border-left:3px solid #00DC6E; }
+.panel-box.blue   { border-left:3px solid #00B4D8; }
+.panel-box.purple { border-left:3px solid #A78BFA; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -340,7 +312,6 @@ def scan_memes():
     return memes
 
 def animated_wave_bars(n=24):
-    """Generate HTML for animated wave bars with random heights and delays."""
     heights = [random.randint(15, 60) for _ in range(n)]
     delays = [random.uniform(0, 0.5) for _ in range(n)]
     bars = ""
@@ -358,18 +329,40 @@ def get_mfcc_seq(path_str: str):
         mu = np.mean(mfcc, axis=1, keepdims=True)
         sd = np.std(mfcc, axis=1, keepdims=True) + 1e-8
         return ((mfcc - mu) / sd).T
-    except:
+    except Exception as e:
+        st.error(f"MFCC error: {e}")
         return None
 
-def compute_sim(ref, test, method="FastDTW"):
+def compute_dtw_raw(ref, test):
+    """Return raw FastDTW distance. Smaller = more similar."""
     if ref is None or test is None:
-        return float('inf') # Kembalikan nilai tak terhingga jika gagal
-    
-    # Menghitung jarak FastDTW mentah (raw) menggunakan Cosine
-    raw_dist, _ = fastdtw(ref, test, dist=cosine)
-    
-    # Langsung kembalikan nilai DTW Raw
-    return float(raw_dist)
+        return None
+    try:
+        raw_dist, _ = fastdtw(ref, test, dist=cosine)
+        return float(raw_dist)
+    except Exception as e:
+        st.error(f"DTW error: {e}")
+        return None
+
+# Threshold untuk DTW raw cosine distance:
+# 0-15  → sangat mirip (hijau)
+# 15-35 → lumayan (kuning)
+# >35   → jauh (merah)
+def score_color(s):
+    if s <= 15.0:  return "#00DC6E"
+    if s <= 35.0:  return "#FFD060"
+    return "#FF6060"
+
+def score_label(s):
+    if s <= 15.0:  return ("🏆 Luar biasa! Sangat mirip!", "success")
+    if s <= 35.0:  return ("✅ Bagus! Cukup mirip.", "success")
+    if s <= 55.0:  return ("🔊 Lumayan, coba lagi.", "info")
+    return ("😅 Masih jauh, coba ulang!", "warning")
+
+# Untuk score ring: makin kecil DTW makin penuh.
+# Kita clamp di [0, 100] lalu invert: ring_pct = max(0, 1 - score/100)
+def score_ring_pct(s):
+    return max(0.0, 1.0 - s / 100.0)
 
 def load_lb(meme_id: str) -> pd.DataFrame:
     f = LEADERBOARD_DIR / f"{meme_id}.csv"
@@ -381,17 +374,10 @@ def load_lb(meme_id: str) -> pd.DataFrame:
     return pd.DataFrame(columns=['name','score','method','timestamp'])
 
 def save_lb(meme_id: str, df: pd.DataFrame):
-    # REVISI: ascending=True karena nilai raw DTW terkecil adalah yang terbaik
+    # ascending=True: nilai DTW terkecil = terbaik
     df = df.sort_values('score', ascending=True).head(15).reset_index(drop=True)
     df.to_csv(LEADERBOARD_DIR / f"{meme_id}.csv", index=False)
     return df
-
-def score_color(s):
-    # REVISI: Karena raw DTW, semakin kecil semakin hijau
-    # Angka threshold ini bisa kamu sesuaikan sendiri nanti
-    if s <= 20.0: return "#00DC6E" # Hijau (Bagus sekali)
-    if s <= 45.0: return "#FFD060" # Kuning (Lumayan)
-    return "#FF6060"               # Merah (Kurang mirip)
 
 # ══════════════════════════════════════════════
 #  SESSION STATE
@@ -428,6 +414,9 @@ if not st.session_state.tutorial_done:
             <div>04. Simpan skor ke leaderboard</div>
           </div>
         </div>
+        <div style="background:#0A1A10;border:1px solid rgba(0,220,110,.15);border-radius:10px;padding:.8rem;margin-bottom:1rem;font-family:'JetBrains Mono',monospace;font-size:.62rem;color:#5A9070;">
+          Skor = nilai DTW mentah · Makin kecil = makin mirip 🎯
+        </div>
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -450,7 +439,6 @@ if st.session_state.selected_meme is None:
 
     if not memes:
         st.warning("Folder `memes/` kosong. Masukkan file audio (.wav/.mp3) ke folder `memes/` — kartu akan muncul otomatis!")
-        st.info("Contoh struktur:\n```\nmemes/\n  meme_audio.wav\n  meme_audio.jpg   ← opsional (gambar)\n  meme_audio.mp4   ← opsional (video)\n```")
         st.stop()
 
     COLS_PER_ROW = 4
@@ -460,7 +448,6 @@ if st.session_state.selected_meme is None:
         cols = st.columns(len(row))
         for col, meme in zip(cols, row):
             with col:
-                # Cover area: gambar jika ada, else waveform animasi
                 if meme['image'] and meme['image'].exists():
                     with open(meme['image'], 'rb') as f:
                         img_b64 = base64.b64encode(f.read()).decode()
@@ -477,7 +464,6 @@ if st.session_state.selected_meme is None:
                     badges.append('<span class="badge-img">IMG</span>')
                 badge_html = f'<div style="display:flex;gap:.3rem;margin-top:.3rem">{"".join(badges)}</div>' if badges else ''
 
-                # Kartu dengan class "meme-card" untuk efek hover
                 st.markdown(f"""
                 <div class="meme-card">
                   {cover_html}
@@ -496,12 +482,12 @@ if st.session_state.selected_meme is None:
 
     st.markdown("---")
     st.markdown(f'<p style="font-family:JetBrains Mono,monospace;font-size:.62rem;color:#1A2838;text-align:center">{len(memes)} meme tersedia · Tambah file audio di folder memes/ untuk meme baru</p>', unsafe_allow_html=True)
+
 # ══════════════════════════════════════════════
 #  CHALLENGE VIEW
 # ══════════════════════════════════════════════
 else:
     meme = st.session_state.selected_meme
-    # Pastikan meme masih valid
     fresh = next((m for m in memes if m['id'] == meme['id']), None)
     if fresh is None:
         st.error("Meme tidak ditemukan. Kembali ke galeri.")
@@ -520,32 +506,36 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown(f"""
-    <div class="challenge-header" style="background:linear-gradient(135deg,#0A1820,#060D16);border:1px solid rgba(0,220,110,.12);border-radius:16px;padding:1.4rem 1.8rem;margin-bottom:1.4rem">
+    <div style="background:linear-gradient(135deg,#0A1820,#060D16);border:1px solid rgba(0,220,110,.12);border-radius:16px;padding:1.4rem 1.8rem;margin-bottom:1.4rem">
       <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;color:#00DC6E;letter-spacing:2px">🎤 Meme Challenge</div>
       <div style="font-family:'Comfortaa',sans-serif;font-weight:700;font-size:1.5rem;color:#fff">{meme['name']}</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">Tirukan suara seakurat mungkin — skor mendekati 1.0 berarti sangat mirip</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">Skor = DTW raw distance · Makin kecil = makin mirip 🎯</div>
     </div>""", unsafe_allow_html=True)
 
     col_ref, col_rec, col_lb = st.columns([1.1, 1.1, 1])
 
+    # ── PANEL REFERENSI ──────────────────────────────
     with col_ref:
-        with st.container(border=True):
-            st.markdown('<div class="pill pill-ref">📢 Referensi</div>', unsafe_allow_html=True)
-            st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.95rem;color:#D8E8F8;margin-bottom:.7rem">{meme["name"]}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-box green">', unsafe_allow_html=True)
+        st.markdown('<div class="pill">📢 Referensi</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.95rem;color:#D8E8F8;margin-bottom:.7rem">{meme["name"]}</div>', unsafe_allow_html=True)
+
         try:
             y_ref, sr_ref = librosa.load(str(meme['audio']), sr=16000, duration=5.0)
             fig_r, ax_r = plt.subplots(figsize=(4, 1.5))
+            fig_r.patch.set_facecolor('none')        # background figure transparan
+            ax_r.set_facecolor('none')               # background axes transparan
             t = np.linspace(0, len(y_ref)/sr_ref, len(y_ref))
             ax_r.plot(t, y_ref, color='#00DC6E', linewidth=.9)
-            ax_r.fill_between(t, y_ref, alpha=.08, color='#00DC6E')
+            ax_r.fill_between(t, y_ref, alpha=.12, color='#00DC6E')
+            ax_r.tick_params(colors='#3C5070')
             ax_r.set_xticks([]); ax_r.set_yticks([])
             for sp in ax_r.spines.values(): sp.set_visible(False)
-            fig_r.patch.set_alpha(0)
-            st.pyplot(fig_r, use_container_width=True)
+            st.pyplot(fig_r, use_container_width=True, transparent=True)
             plt.close(fig_r)
             st.caption(f"Durasi: {len(y_ref)/sr_ref:.1f}s  ·  SR: {sr_ref} Hz")
-        except:
-            st.warning("Gagal load waveform.")
+        except Exception as e:
+            st.warning(f"Gagal load waveform: {e}")
 
         if st.button("▶  Putar Referensi", key="play_ref_btn"):
             st.session_state.play_ref = True
@@ -563,11 +553,11 @@ else:
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── PANEL REKAM ──────────────────────────────────
     with col_rec:
-        with st.container(border=True):
-            st.markdown('<div class="pill pill-rec">🎙️ Rekam Suaramu</div>', unsafe_allow_html=True)
-            
-        method = st.radio("Metode:", ["FastDTW", "DTW standar"], horizontal=True, key="dtw_method", label_visibility="collapsed")
+        st.markdown('<div class="panel-box blue">', unsafe_allow_html=True)
+        st.markdown('<div class="pill">🎙️ Rekam Suaramu</div>', unsafe_allow_html=True)
+
         user_audio = st.audio_input("Klik mikrofon, lalu tirukan suara meme:", key="rec_input")
 
         if user_audio is not None:
@@ -576,36 +566,35 @@ else:
             with open(tmp_path, "wb") as f:
                 f.write(user_audio.getbuffer())
 
-            seq_ref = get_mfcc_seq(str(meme['audio']))
-            seq_user = get_mfcc_seq(tmp_path)
+            with st.spinner("Menghitung skor…"):
+                seq_ref  = get_mfcc_seq(str(meme['audio']))
+                seq_user = get_mfcc_seq(tmp_path)
+                score    = compute_dtw_raw(seq_ref, seq_user)
 
-            if seq_ref is not None and seq_user is not None:
-                score = compute_sim(seq_ref, seq_user, method)
-                sc = score_color(score)
-                pct = int(score * 360)
+            if score is not None:
+                sc  = score_color(score)
+                pct = score_ring_pct(score)
+                deg = int(pct * 360)
+
                 st.markdown(f"""
                 <div class="score-ring-wrap" style="margin:1rem 0">
-                  <div class="score-ring" style="--c:{sc};--pct:{pct}deg">
-                    <div class="score-ring-val" style="color:{sc}">{score:.3f}</div>
+                  <div class="score-ring" style="--c:{sc};--pct:{deg}deg">
+                    <div class="score-ring-val" style="color:{sc}">{score:.2f}</div>
                   </div>
-                  <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">SKOR KEMIRIPAN</div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">DTW DISTANCE (↓ makin bagus)</div>
                 </div>""", unsafe_allow_html=True)
 
-                if score >= 0.75:
-                    st.success("🏆 Luar biasa!")
-                elif score >= 0.55:
-                    st.success("✅ Bagus!")
-                elif score >= 0.35:
-                    st.info("🔊 Lumayan, coba lagi.")
-                else:
-                    st.warning("😅 Masih jauh, coba ulang.")
+                msg, kind = score_label(score)
+                if kind == "success": st.success(msg)
+                elif kind == "info":  st.info(msg)
+                else:                 st.warning(msg)
 
                 st.markdown('<div style="margin-top:.9rem;border-top:1px solid rgba(255,255,255,.05);padding-top:.9rem">', unsafe_allow_html=True)
                 player_name = st.text_input("Nama kamu:", placeholder="Masukkan nama…", key="player_name", label_visibility="collapsed")
                 if st.button("💾  Simpan Skor", key="submit_lb"):
                     name = player_name.strip() or "Anonymous"
                     df_lb = load_lb(meme['id'])
-                    new_row = pd.DataFrame([{'name': name, 'score': score, 'method': method, 'timestamp': pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}])
+                    new_row = pd.DataFrame([{'name': name, 'score': score, 'method': 'FastDTW', 'timestamp': pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}])
                     df_lb = pd.concat([df_lb, new_row], ignore_index=True)
                     save_lb(meme['id'], df_lb)
                     st.session_state.lb_submitted = True
@@ -613,34 +602,37 @@ else:
                     st.session_state['last_name'] = name
                     st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-                try: os.remove(tmp_path)
-                except: pass
             else:
-                st.error("Rekam minimal 0.5 detik.")
-                try: os.remove(tmp_path)
-                except: pass
+                st.error("Gagal menghitung skor. Pastikan rekaman minimal 0.5 detik.")
+
+            try: os.remove(tmp_path)
+            except: pass
 
         if st.session_state.get('lb_submitted'):
-            st.success(f"✅ Skor **{st.session_state.get('last_score',0):.3f}** atas nama **{st.session_state.get('last_name','')}** tersimpan!")
+            st.success(f"✅ Skor **{st.session_state.get('last_score',0):.2f}** atas nama **{st.session_state.get('last_name','')}** tersimpan!")
             st.session_state.lb_submitted = False
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── PANEL LEADERBOARD ────────────────────────────
     with col_lb:
-        with st.container(border=True):
-            st.markdown('<div class="pill pill-lb">🏆 Leaderboard</div>', unsafe_allow_html=True)
-            st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.88rem;color:#8A9BB8;margin-bottom:.8rem">{meme["name"]}</div>', unsafe_allow_html=True)      
+        st.markdown('<div class="panel-box purple">', unsafe_allow_html=True)
+        st.markdown('<div class="pill">🏆 Leaderboard</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.88rem;color:#8A9BB8;margin-bottom:.8rem">{meme["name"]}</div>', unsafe_allow_html=True)
+
         df_lb = load_lb(meme['id'])
         if df_lb.empty:
             st.markdown("""<div style="text-align:center;padding:2rem 1rem"><div style="font-size:2rem">🏅</div><div style="font-family:JetBrains Mono,monospace;font-size:.65rem;color:#1E2E48">Belum ada skor. Jadilah yang pertama!</div></div>""", unsafe_allow_html=True)
         else:
-            df_show = df_lb.sort_values('score', ascending=False).head(10).reset_index(drop=True)
+            # Tampilkan ascending: terkecil = terbaik
+            df_show = df_lb.sort_values('score', ascending=True).head(10).reset_index(drop=True)
             for i, row in df_show.iterrows():
                 icon = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
-                cls = {0:"gold",1:"silver",2:"bronze"}.get(i, "")
-                sc = score_color(row['score'])
-                mth = str(row.get('method','DTW'))[:7]
-                st.markdown(f"""<div class="lb-row"><div class="lb-rank {cls}">{icon}</div><div class="lb-name">{row['name']}</div><div class="lb-score" style="color:{sc}">{row['score']:.3f}</div><div class="lb-method">{mth}</div></div>""", unsafe_allow_html=True)
+                cls  = {0:"gold",1:"silver",2:"bronze"}.get(i, "")
+                sc   = score_color(row['score'])
+                mth  = str(row.get('method','DTW'))[:7]
+                st.markdown(f"""<div class="lb-row"><div class="lb-rank {cls}">{icon}</div><div class="lb-name">{row['name']}</div><div class="lb-score" style="color:{sc}">{row['score']:.2f}</div><div class="lb-method">{mth}</div></div>""", unsafe_allow_html=True)
+
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
