@@ -7,8 +7,7 @@ import librosa.display
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
-from scipy.spatial.distance import cosine
-from fastdtw import fastdtw
+from scipy.spatial.distance import cosine as cos_dist
 from pathlib import Path
 import pandas as pd
 import io
@@ -21,11 +20,17 @@ st.set_page_config(
     layout="wide"
 )
 
+# ══════════════════════════════════════════════
+#  DIRECTORIES
+# ══════════════════════════════════════════════
 MEMES_DIR = Path("memes")
 LEADERBOARD_DIR = Path("leaderboards")
 MEMES_DIR.mkdir(exist_ok=True)
 LEADERBOARD_DIR.mkdir(exist_ok=True)
 
+# ══════════════════════════════════════════════
+#  CSS — Dark audio-studio aesthetic
+# ══════════════════════════════════════════════
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -51,6 +56,7 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     color:#00DC6E; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:.5rem;
 }
 
+/* Card */
 .meme-card {
     background:#0C1520; border:2px solid rgba(255,255,255,.07);
     border-radius:16px; overflow:hidden; cursor:pointer;
@@ -65,6 +71,7 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
 .meme-card:hover .wave-bar { animation-play-state:running; }
 .meme-card:not(:hover) .wave-bar { animation-play-state:paused; }
 
+/* Waveform / gambar area */
 .waveform-container {
     height:100px;
     background:#080E18;
@@ -81,6 +88,7 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     border-radius:12px 12px 0 0;
 }
 
+/* Footer */
 .meme-footer {
     display: flex;
     flex-direction: column;
@@ -127,6 +135,7 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     color:#00B4D8;
 }
 
+/* Tombol umum */
 .stButton > button {
     background:linear-gradient(135deg,#00C060,#008A40) !important;
     color:#030810 !important;
@@ -163,6 +172,7 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     color:#C8D8EE !important;
 }
 
+/* Animated wave bars */
 .wave-visual {
     display:flex;
     align-items:center;
@@ -183,6 +193,16 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     to   { transform:scaleY(1);  opacity:1;  }
 }
 
+/* Challenge cards */
+.card {
+    background:#0C1520; border:1px solid rgba(255,255,255,.06);
+    border-radius:13px; padding:1.1rem 1.3rem; height:100%;
+}
+.card-green  { border-left:3px solid #00DC6E; }
+.card-blue   { border-left:3px solid #00B4D8; }
+.card-purple { border-left:3px solid #A78BFA; }
+
+/* Metric dan score ring */
 [data-testid="stMetric"] {
     background:#0C1520 !important;
     border:1px solid rgba(255,255,255,.05) !important;
@@ -238,6 +258,7 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     color:#1E2E48; letter-spacing:1px; text-transform:uppercase; flex-shrink:0;
 }
 
+/* Radio */
 [data-testid="stRadio"] > div { gap:.5rem !important; }
 [data-testid="stRadio"] label {
     background:#0C1520; border:1px solid rgba(255,255,255,.07);
@@ -250,6 +271,7 @@ h3 { font-family:'Comfortaa',sans-serif !important; font-weight:600 !important;
     background:#091810 !important; color:#00DC6E !important;
 }
 
+/* Audio input */
 [data-testid="stAudioInput"] > div {
     background:#0C1520 !important;
     border:1px solid rgba(255,255,255,.08) !important;
@@ -264,18 +286,6 @@ hr { border:none !important; border-top:1px solid rgba(255,255,255,.05) !importa
 ::-webkit-scrollbar-track { background:#05090F; }
 ::-webkit-scrollbar-thumb { background:rgba(0,220,110,.15); border-radius:3px; }
 [data-testid="stSidebar"] { background:#070D17 !important; border-right:1px solid rgba(0,220,110,.08); }
-
-/* Panel challenge — tanpa border wrapper ganda */
-.panel-box {
-    background:#0C1520;
-    border-radius:13px;
-    border:1px solid rgba(255,255,255,.08);
-    padding:1rem 1.1rem;
-    height:100%;
-}
-.panel-box.green  { border-left:3px solid #00DC6E; }
-.panel-box.blue   { border-left:3px solid #00B4D8; }
-.panel-box.purple { border-left:3px solid #A78BFA; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -319,105 +329,89 @@ def animated_wave_bars(n=24):
         bars += f'<div class="wave-bar" style="height:{h}px;animation-delay:{d:.2f}s"></div>'
     return f'<div class="wave-visual">{bars}</div>'
 
-@st.cache_data  # hanya untuk file referensi (path stabil)
-def get_mfcc_ref(path_str: str):
-    try:
-        y, sr = librosa.load(path_str, sr=16000)
-        if len(y) < sr * 0.3:
-            return None
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-        mu = np.mean(mfcc, axis=1, keepdims=True)
-        sd = np.std(mfcc, axis=1, keepdims=True) + 1e-8
-        return ((mfcc - mu) / sd).T
-    except Exception as e:
-        st.error(f"MFCC error: {e}")
-        return None
+# ========== METRIK BARU (CAT-SIMILARITY STYLE) ==========
+def extract_features_meme(file_path, sr_target=16000, n_mfcc=13):
+    y, sr = librosa.load(file_path, sr=sr_target)
 
-# TANPA cache — dipanggil setiap rekaman baru
-def get_mfcc_seq(path_str: str):
-    try:
-        y, sr = librosa.load(path_str, sr=16000)
-        if len(y) < sr * 0.3:
-            return None
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-        mu = np.mean(mfcc, axis=1, keepdims=True)
-        sd = np.std(mfcc, axis=1, keepdims=True) + 1e-8
-        return ((mfcc - mu) / sd).T
-    except Exception as e:
-        st.error(f"MFCC error: {e}")
-        return None
+    f0, voiced_flag, _ = librosa.pyin(y, fmin=librosa.note_to_hz('C2'),
+                                       fmax=librosa.note_to_hz('C8'), sr=sr)
+    f0_voiced = f0[voiced_flag & ~np.isnan(f0)] if f0 is not None else np.array([])
 
-def noise_reduce(y, sr):
-    """Sederhana: spectral gating — kurangi frame yang energinya di bawah threshold."""
+    if len(f0_voiced) >= 3:
+        f0_median    = float(np.median(f0_voiced))
+        f0_mean      = float(np.mean(f0_voiced))
+        f0_std       = float(np.std(f0_voiced))
+        voiced_ratio = float(len(f0_voiced) / len(f0))
+    else:
+        f0_median    = 120.0
+        f0_mean      = 120.0
+        f0_std       = 0.0
+        voiced_ratio = 0.0
+
+    stft_mag = np.abs(librosa.stft(y))
+    freqs    = librosa.fft_frequencies(sr=sr)
+    e_low  = float(np.mean(stft_mag[freqs < 500, :]))
+    e_mid  = float(np.mean(stft_mag[(freqs >= 500) & (freqs < 1500), :]))
+    e_high = float(np.mean(stft_mag[freqs >= 1500, :]))
+    total  = e_low + e_mid + e_high + 1e-9
+    band_ratios = np.array([e_low / total, e_mid / total, e_high / total])
+
+    mfcc      = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
+    mfcc_mean = np.mean(mfcc, axis=1)
+    mfcc_std  = np.std(mfcc, axis=1)
+    contrast   = librosa.feature.spectral_contrast(y=y, sr=sr)
+    contrast_m = np.mean(contrast, axis=1)
+    norm_c     = np.max(np.abs(contrast_m)) + 1e-9
+    contrast_n = contrast_m / norm_c
+
+    spectral_texture = np.concatenate([
+        mfcc_mean / (np.max(np.abs(mfcc_mean)) + 1e-9),
+        mfcc_std  / (np.max(mfcc_std) + 1e-9),
+        contrast_n,
+    ])
+
+    return {
+        'f0_median':        f0_median,
+        'f0_mean':          f0_mean,
+        'f0_std':           f0_std,
+        'voiced_ratio':     voiced_ratio,
+        'band_ratios':      band_ratios,
+        'spectral_texture': spectral_texture,
+        'mfcc_mean':        mfcc_mean,
+        'y':                y,
+        'sr':               sr,
+    }
+
+
+def meme_similarity_score(feat_ref, feat_q):
+    PITCH_SIGMA = 350.0
+    delta_pitch = feat_q['f0_median'] - feat_ref['f0_median']
+    pitch_score = float(np.exp(-0.5 * (delta_pitch / PITCH_SIGMA) ** 2))
+    vr_q = feat_q['voiced_ratio']
+    vr_ref = feat_ref['voiced_ratio']
+    vr_factor = float(np.clip(vr_q / max(vr_ref, 0.15), 0.0, 1.0))
+    pitch_score_final = pitch_score * (0.7 + 0.3 * vr_factor)
+
+    low = feat_q['band_ratios'][0]
+    mid_high = feat_q['band_ratios'][1] + feat_q['band_ratios'][2]
+    band_ratio = mid_high / low if low > 1e-6 else 10.0
+    k = 3.0
+    threshold = 1.2
+    band_score = 1.0 / (1.0 + np.exp(-k * (band_ratio - threshold)))
+    band_score = float(np.clip(band_score, 0.0, 1.0))
+
+    tx_ref = feat_ref['spectral_texture']
+    tx_q = feat_q['spectral_texture']
+    min_len = min(len(tx_ref), len(tx_q))
     try:
-        # Hitung energy per frame
-        S = np.abs(librosa.stft(y))
-        noise_floor = np.percentile(S, 20, axis=1, keepdims=True)
-        mask = S > (noise_floor * 1.5)
-        S_clean = S * mask
-        # Reconstruct dengan phase asli
-        _, phase = librosa.magphase(librosa.stft(y))
-        y_clean = librosa.istft(S_clean * phase)
-        return y_clean
+        tex_cos = float(cos_dist(tx_ref[:min_len], tx_q[:min_len]))
+        tex_score = float(np.clip(1.0 - tex_cos, 0.0, 1.0))
     except:
-        return y
+        tex_score = 0.5
 
-def compute_score(ref_path: str, user_path: str):
-    """
-    Hitung skor kemiripan 0–100.
-    Pipeline: load → noise reduce → MFCC 20 koef → normalize per-koef → FastDTW cosine
-    Skor = max(0, 100 - dtw_raw * 1.5)  → makin mirip makin tinggi
-    """
-    try:
-        y_ref,  sr = librosa.load(ref_path,  sr=16000)
-        y_user, _  = librosa.load(user_path, sr=16000)
+    total = 0.50 * pitch_score_final + 0.40 * band_score + 0.10 * tex_score
+    return float(np.clip(total, 0.0, 1.0))
 
-        # Noise reduction
-        y_ref  = noise_reduce(y_ref,  sr)
-        y_user = noise_reduce(y_user, sr)
-
-        # Trim silence
-        y_ref,  _ = librosa.effects.trim(y_ref,  top_db=20)
-        y_user, _ = librosa.effects.trim(y_user, top_db=20)
-
-        if len(y_ref) < sr * 0.2 or len(y_user) < sr * 0.2:
-            return None, "Audio terlalu pendek setelah trimming."
-
-        # MFCC 20 koefisien
-        def mfcc_norm(y):
-            m = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
-            mu = np.mean(m, axis=1, keepdims=True)
-            sd = np.std(m,  axis=1, keepdims=True) + 1e-8
-            return ((m - mu) / sd).T  # (frames, 20)
-
-        seq_ref  = mfcc_norm(y_ref)
-        seq_user = mfcc_norm(y_user)
-
-        dtw_raw, _ = fastdtw(seq_ref, seq_user, dist=cosine)
-        dtw_raw = float(dtw_raw)
-
-        # Normalisasi ke skor 0–100 (clamp)
-        # Empiris: dtw ~0 = sempurna, dtw ~65 = sangat berbeda
-        score = max(0.0, min(100.0, 100.0 - dtw_raw * 1.5))
-        return round(score, 1), None
-    except Exception as e:
-        return None, str(e)
-
-def score_color(s):
-    """s = skor 0-100, makin tinggi makin bagus."""
-    if s >= 75: return "#00DC6E"
-    if s >= 45: return "#FFD060"
-    return "#FF6060"
-
-def score_label(s):
-    if s >= 80: return ("🏆 Luar biasa! Sangat mirip!", "success")
-    if s >= 60: return ("✅ Bagus! Cukup mirip.", "success")
-    if s >= 40: return ("🔊 Lumayan, coba lagi.", "info")
-    return ("😅 Masih jauh, coba ulang!", "warning")
-
-def score_ring_pct(s):
-    """s = 0-100 → 0.0-1.0 untuk ring."""
-    return s / 100.0
 
 def load_lb(meme_id: str) -> pd.DataFrame:
     f = LEADERBOARD_DIR / f"{meme_id}.csv"
@@ -429,10 +423,14 @@ def load_lb(meme_id: str) -> pd.DataFrame:
     return pd.DataFrame(columns=['name','score','method','timestamp'])
 
 def save_lb(meme_id: str, df: pd.DataFrame):
-    # ascending=False: nilai terbesar = terbaik
     df = df.sort_values('score', ascending=False).head(15).reset_index(drop=True)
     df.to_csv(LEADERBOARD_DIR / f"{meme_id}.csv", index=False)
     return df
+
+def score_color(s):
+    if s >= 0.7: return "#00DC6E"
+    if s >= 0.4: return "#FFD060"
+    return "#FF6060"
 
 # ══════════════════════════════════════════════
 #  SESSION STATE
@@ -469,15 +467,13 @@ if not st.session_state.tutorial_done:
             <div>04. Simpan skor ke leaderboard</div>
           </div>
         </div>
-        <div style="background:#0A1A10;border:1px solid rgba(0,220,110,.15);border-radius:10px;padding:.8rem;margin-bottom:1rem;font-family:'JetBrains Mono',monospace;font-size:.62rem;color:#5A9070;">
-          Skor = nilai DTW mentah · Makin kecil = makin mirip 🎯
-        </div>
       </div>
     </div>
     """, unsafe_allow_html=True)
-    col_tut, _ = st.columns([2, 4])
-    with col_tut:
-        st.markdown('<div class="cta">', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown('<div style="display: flex; justify-content: center;">', unsafe_allow_html=True)
         if st.button("🎮  Mulai Bermain!", key="start_tutorial"):
             st.session_state.tutorial_done = True
             st.rerun()
@@ -494,6 +490,7 @@ if st.session_state.selected_meme is None:
 
     if not memes:
         st.warning("Folder `memes/` kosong. Masukkan file audio (.wav/.mp3) ke folder `memes/` — kartu akan muncul otomatis!")
+        st.info("Contoh struktur:\n```\nmemes/\n  meme_audio.wav\n  meme_audio.jpg   ← opsional (gambar)\n  meme_audio.mp4   ← opsional (video)\n```")
         st.stop()
 
     COLS_PER_ROW = 4
@@ -561,39 +558,33 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#0A1820,#060D16);border:1px solid rgba(0,220,110,.12);border-radius:16px;padding:1.4rem 1.8rem;margin-bottom:1.4rem">
+    <div class="challenge-header" style="background:linear-gradient(135deg,#0A1820,#060D16);border:1px solid rgba(0,220,110,.12);border-radius:16px;padding:1.4rem 1.8rem;margin-bottom:1.4rem">
       <div style="font-family:'JetBrains Mono',monospace;font-size:.62rem;color:#00DC6E;letter-spacing:2px">🎤 Meme Challenge</div>
       <div style="font-family:'Comfortaa',sans-serif;font-weight:700;font-size:1.5rem;color:#fff">{meme['name']}</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">Skor 0–100 · Makin tinggi = makin mirip suara meme 🎯</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">Tirukan suara seakurat mungkin — skor mendekati 1.0 berarti sangat mirip</div>
     </div>""", unsafe_allow_html=True)
 
     col_ref, col_rec, col_lb = st.columns([1.1, 1.1, 1])
 
-    # ── PANEL REFERENSI ──────────────────────────────
     with col_ref:
+        st.markdown('<div class="card card-green">', unsafe_allow_html=True)
         st.markdown('<div class="pill">📢 Referensi</div>', unsafe_allow_html=True)
         st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.95rem;color:#D8E8F8;margin-bottom:.7rem">{meme["name"]}</div>', unsafe_allow_html=True)
 
         try:
             y_ref, sr_ref = librosa.load(str(meme['audio']), sr=16000, duration=5.0)
-            fig_r, ax_r = plt.subplots(figsize=(4, 1.4))
-            BG = '#080E18'
-            fig_r.patch.set_facecolor('#0C1520')        
-            ax_r.set_facecolor('#0C1520')
+            fig_r, ax_r = plt.subplots(figsize=(4, 1.5))
             t = np.linspace(0, len(y_ref)/sr_ref, len(y_ref))
-            ax_r.plot(t, y_ref, color='#00DC6E', linewidth=.8)
-            ax_r.fill_between(t, y_ref, alpha=.15, color='#00DC6E')
+            ax_r.plot(t, y_ref, color='#00DC6E', linewidth=.9)
+            ax_r.fill_between(t, y_ref, alpha=.08, color='#00DC6E')
             ax_r.set_xticks([]); ax_r.set_yticks([])
             for sp in ax_r.spines.values(): sp.set_visible(False)
-            fig_r.tight_layout(pad=0)
-            buf = io.BytesIO()
-            fig_r.savefig(buf, format='png', facecolor=BG, bbox_inches='tight', pad_inches=0)
-            buf.seek(0)
-            st.image(buf, use_container_width=True)
+            fig_r.patch.set_alpha(0)
+            st.pyplot(fig_r, use_container_width=True)
             plt.close(fig_r)
             st.caption(f"Durasi: {len(y_ref)/sr_ref:.1f}s  ·  SR: {sr_ref} Hz")
-        except Exception as e:
-            st.warning(f"Gagal load waveform: {e}")
+        except:
+            st.warning("Gagal load waveform.")
 
         if st.button("▶  Putar Referensi", key="play_ref_btn"):
             st.session_state.play_ref = True
@@ -609,65 +600,90 @@ else:
             if st.session_state.get('show_video', False):
                 st.video(str(meme['video']))
 
-    # ── PANEL REKAM ──────────────────────────────────
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with col_rec:
+        st.markdown('<div class="card card-blue">', unsafe_allow_html=True)
         st.markdown('<div class="pill">🎙️ Rekam Suaramu</div>', unsafe_allow_html=True)
 
+        # Tidak ada pilihan metode lagi
         user_audio = st.audio_input("Klik mikrofon, lalu tirukan suara meme:", key="rec_input")
 
         if user_audio is not None:
             st.audio(user_audio, format="audio/wav")
-            # Nama unik tiap rekaman agar cache tidak mengganggu
-            tmp_path = f"_tmp_{meme['id']}_{int(time.time()*1000)}.wav"
+            tmp_path = f"_tmp_{meme['id']}.wav"
             with open(tmp_path, "wb") as f:
                 f.write(user_audio.getbuffer())
 
-            with st.spinner("Menghitung skor…"):
-                score, error_msg = compute_score(str(meme['audio']), tmp_path)
+            # Proses referensi hanya sekali
+            feat_ref_key = f"feat_ref_{meme['id']}"
+            if feat_ref_key not in st.session_state:
+                try:
+                    st.session_state[feat_ref_key] = extract_features_meme(str(meme['audio']))
+                except Exception as e:
+                    st.error("Gagal memproses audio referensi.")
+                    try: os.remove(tmp_path)
+                    except: pass
+                    st.stop()
 
-            if score is not None:
-                sc  = score_color(score)
-                pct = score_ring_pct(score)
-                deg = int(pct * 360)
+            feat_ref_meme = st.session_state[feat_ref_key]
+            try:
+                feat_user = extract_features_meme(tmp_path)
+            except Exception as e:
+                st.error("Gagal memproses rekaman. Pastikan rekaman cukup panjang.")
+                try: os.remove(tmp_path)
+                except: pass
+                st.stop()
 
-                st.markdown(f"""
-                <div class="score-ring-wrap" style="margin:1rem 0">
-                  <div class="score-ring" style="--c:{sc};--pct:{deg}deg">
-                    <div class="score-ring-val" style="color:{sc}">{score:.0f}</div>
-                  </div>
-                  <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">SKOR KEMIRIPAN (0-100)</div>
-                </div>""", unsafe_allow_html=True)
+            score = meme_similarity_score(feat_ref_meme, feat_user)
+            sc = score_color(score)
+            pct = int(score * 360)
+            st.markdown(f"""
+            <div class="score-ring-wrap" style="margin:1rem 0">
+              <div class="score-ring" style="--c:{sc};--pct:{pct}deg">
+                <div class="score-ring-val" style="color:{sc}">{score:.3f}</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:.65rem;color:#2E4060">SKOR KEMIRIPAN</div>
+            </div>""", unsafe_allow_html=True)
 
-                msg, kind = score_label(score)
-                if kind == "success": st.success(msg)
-                elif kind == "info":  st.info(msg)
-                else:                 st.warning(msg)
-
-                st.markdown('<div style="margin-top:.9rem;border-top:1px solid rgba(255,255,255,.05);padding-top:.9rem">', unsafe_allow_html=True)
-                player_name = st.text_input("Nama kamu:", placeholder="Masukkan nama…", key="player_name", label_visibility="collapsed")
-                if st.button("💾  Simpan Skor", key="submit_lb"):
-                    name = player_name.strip() or "Anonymous"
-                    df_lb = load_lb(meme['id'])
-                    new_row = pd.DataFrame([{'name': name, 'score': score, 'method': 'FastDTW', 'timestamp': pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")}])
-                    df_lb = pd.concat([df_lb, new_row], ignore_index=True)
-                    save_lb(meme['id'], df_lb)
-                    st.session_state.lb_submitted = True
-                    st.session_state['last_score'] = score
-                    st.session_state['last_name'] = name
-                    st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
+            if score >= 0.75:
+                st.success("🏆 Luar biasa!")
+            elif score >= 0.55:
+                st.success("✅ Bagus!")
+            elif score >= 0.35:
+                st.info("🔊 Lumayan, coba lagi.")
             else:
-                st.error(f"Gagal menghitung skor: {err_msg}. Pastikan rekaman minimal 0.5 detik.")
+                st.warning("😅 Masih jauh, coba ulang.")
 
+            st.markdown('<div style="margin-top:.9rem;border-top:1px solid rgba(255,255,255,.05);padding-top:.9rem">', unsafe_allow_html=True)
+            player_name = st.text_input("Nama kamu:", placeholder="Masukkan nama…", key="player_name", label_visibility="collapsed")
+            if st.button("💾  Simpan Skor", key="submit_lb"):
+                name = player_name.strip() or "Anonymous"
+                df_lb = load_lb(meme['id'])
+                new_row = pd.DataFrame([{
+                    'name': name,
+                    'score': score,
+                    'method': 'CatScore',
+                    'timestamp': pd.Timestamp.now().strftime("%Y-%m-%d %H:%M")
+                }])
+                df_lb = pd.concat([df_lb, new_row], ignore_index=True)
+                save_lb(meme['id'], df_lb)
+                st.session_state.lb_submitted = True
+                st.session_state['last_score'] = score
+                st.session_state['last_name'] = name
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
             try: os.remove(tmp_path)
             except: pass
 
         if st.session_state.get('lb_submitted'):
-            st.success(f"✅ Skor **{st.session_state.get('last_score',0):.0f}** atas nama **{st.session_state.get('last_name','')}** tersimpan!")
+            st.success(f"✅ Skor **{st.session_state.get('last_score',0):.3f}** atas nama **{st.session_state.get('last_name','')}** tersimpan!")
             st.session_state.lb_submitted = False
 
-    # ── PANEL LEADERBOARD ────────────────────────────
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with col_lb:
+        st.markdown('<div class="card card-purple">', unsafe_allow_html=True)
         st.markdown('<div class="pill">🏆 Leaderboard</div>', unsafe_allow_html=True)
         st.markdown(f'<div style="font-family:Comfortaa,sans-serif;font-weight:700;font-size:.88rem;color:#8A9BB8;margin-bottom:.8rem">{meme["name"]}</div>', unsafe_allow_html=True)
 
@@ -675,14 +691,14 @@ else:
         if df_lb.empty:
             st.markdown("""<div style="text-align:center;padding:2rem 1rem"><div style="font-size:2rem">🏅</div><div style="font-family:JetBrains Mono,monospace;font-size:.65rem;color:#1E2E48">Belum ada skor. Jadilah yang pertama!</div></div>""", unsafe_allow_html=True)
         else:
-            # Tampilkan ascending: terkecil = terbaik
             df_show = df_lb.sort_values('score', ascending=False).head(10).reset_index(drop=True)
             for i, row in df_show.iterrows():
                 icon = {0:"🥇",1:"🥈",2:"🥉"}.get(i, f"#{i+1}")
-                cls  = {0:"gold",1:"silver",2:"bronze"}.get(i, "")
-                sc   = score_color(row['score'])
-                mth  = str(row.get('method','DTW'))[:7]
-                st.markdown(f"""<div class="lb-row"><div class="lb-rank {cls}">{icon}</div><div class="lb-name">{row['name']}</div><div class="lb-score" style="color:{sc}">{row['score']:.0f}</div><div class="lb-method">{mth}</div></div>""", unsafe_allow_html=True)
+                cls = {0:"gold",1:"silver",2:"bronze"}.get(i, "")
+                sc = score_color(row['score'])
+                mth = str(row.get('method','CatScore'))[:7]
+                st.markdown(f"""<div class="lb-row"><div class="lb-rank {cls}">{icon}</div><div class="lb-name">{row['name']}</div><div class="lb-score" style="color:{sc}">{row['score']:.3f}</div><div class="lb-method">{mth}</div></div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown('<div style="text-align:center;padding:.5rem 0"><span style="font-family:JetBrains Mono,monospace;font-size:.58rem;color:#10181F;letter-spacing:3px">Meme Voice Challenge · Voice Lab</span></div>', unsafe_allow_html=True)
