@@ -3,21 +3,16 @@ import numpy as np
 import librosa
 import matplotlib.pyplot as plt
 import os
-from pathlib import Path
-from scipy.spatial.distance import cosine as cos_dist, euclidean
+import time  # untuk simulasi loading
+from scipy.spatial.distance import cosine as cos_dist
 
 # ========== KONFIGURASI HALAMAN ==========
-st.set_page_config(
-    page_title="Voice Lab",
-    page_icon="🎤",
-    layout="wide"
-)
+st.set_page_config(page_title="Voice Lab", page_icon="🎤", layout="wide")
 
-# ========== CUSTOM CSS PREMIUM AUDIO STUDIO — WHITE THEME ==========
+# ========== CUSTOM CSS (sama seperti awal) ==========
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;500;600;700&display=swap');
-
     .stApp {
         background: var(--background-color);
         color: var(--text-color);
@@ -287,6 +282,35 @@ st.markdown("""
     ::-webkit-scrollbar-track { background: #F5F7FA; }
     ::-webkit-scrollbar-thumb { background: rgba(0,180,80,0.2); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(0,180,80,0.4); }
+
+    .score-breakdown {
+        background: #F8FAFC;
+        border: 1px solid rgba(0,0,0,0.07);
+        border-radius: 14px;
+        padding: 1rem 1.3rem;
+        margin-top: 0.8rem;
+    }
+    .score-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.55rem;
+        font-size: 0.82rem;
+    }
+    .score-label { color: #556070; font-weight: 500; }
+    .score-val   { font-family: 'Comfortaa', monospace; font-weight: 700; color: #1A1A2E; }
+    .score-bar-wrap {
+        height: 5px;
+        background: rgba(0,0,0,0.07);
+        border-radius: 999px;
+        margin-bottom: 0.8rem;
+        overflow: hidden;
+    }
+    .score-bar-fill {
+        height: 100%;
+        border-radius: 999px;
+        transition: width 0.5s ease;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -311,154 +335,172 @@ plt.rcParams.update({
     'lines.linewidth': 1.4,
 })
 
-
-# ========== FUNGSI EKSTRAKSI FITUR SPEKTRAL (VERSI DIPERBAIKI) ==========
-@st.cache_data
-def extract_spectral_features(file_path, sr_target=16000, n_mfcc=13):
+# =========================================================
+# CAT-SIMILARITY SCORE v4 (diskriminatif)
+# =========================================================
+def extract_features_v3(file_path, sr_target=16000, n_mfcc=13):
     y, sr = librosa.load(file_path, sr=sr_target)
 
-    # --- MFCC (timbre dasar) ---
+    f0, voiced_flag, _ = librosa.pyin(y, fmin=librosa.note_to_hz('C2'),
+                                       fmax=librosa.note_to_hz('C8'), sr=sr)
+    f0_voiced = f0[voiced_flag & ~np.isnan(f0)] if f0 is not None else np.array([])
+
+    if len(f0_voiced) >= 3:
+        f0_median    = float(np.median(f0_voiced))
+        f0_mean      = float(np.mean(f0_voiced))
+        f0_std       = float(np.std(f0_voiced))
+        voiced_ratio = float(len(f0_voiced) / len(f0))
+    else:
+        f0_median    = 120.0
+        f0_mean      = 120.0
+        f0_std       = 0.0
+        voiced_ratio = 0.0
+
+    stft_mag = np.abs(librosa.stft(y))
+    freqs    = librosa.fft_frequencies(sr=sr)
+    e_low  = float(np.mean(stft_mag[freqs < 500, :]))
+    e_mid  = float(np.mean(stft_mag[(freqs >= 500) & (freqs < 1500), :]))
+    e_high = float(np.mean(stft_mag[freqs >= 1500, :]))
+    total  = e_low + e_mid + e_high + 1e-9
+    band_ratios = np.array([e_low / total, e_mid / total, e_high / total])
+
     mfcc      = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
     mfcc_mean = np.mean(mfcc, axis=1)
     mfcc_std  = np.std(mfcc, axis=1)
-
-    # --- Spectral features dasar ---
-    centroid_m  = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)) / (sr / 2)
-    rolloff_m   = np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85)) / (sr / 2)
-    bandwidth_m = np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)) / (sr / 2)
-    flatness_m  = np.mean(librosa.feature.spectral_flatness(y=y))
-    zcr_m       = np.mean(librosa.feature.zero_crossing_rate(y))
-
     contrast   = librosa.feature.spectral_contrast(y=y, sr=sr)
     contrast_m = np.mean(contrast, axis=1)
-    contrast_n = contrast_m / (np.max(np.abs(contrast_m)) + 1e-9)
+    norm_c     = np.max(np.abs(contrast_m)) + 1e-9
+    contrast_n = contrast_m / norm_c
 
-    # --- Pitch / F0 — PEMBEDA SPESIES UTAMA ---
-    # Kucing : 600–1500 Hz
-    # Manusia: 80–300 Hz
-    # Perbedaan ini bisa 5–10× lipat → harus sangat dominan di feature vector
-    f0, voiced_flag, _ = librosa.pyin(
-        y,
-        fmin=librosa.note_to_hz('C2'),   # ~65 Hz
-        fmax=librosa.note_to_hz('C7'),   # ~2093 Hz
-        sr=sr
-    )
-    f0_voiced = f0[voiced_flag & ~np.isnan(f0)] if f0 is not None else np.array([])
-
-    if len(f0_voiced) > 0:
-        f0_mean_raw  = np.mean(f0_voiced)
-        f0_median    = np.median(f0_voiced)
-        f0_std_raw   = np.std(f0_voiced)
-        f0_range_raw = np.max(f0_voiced) - np.min(f0_voiced)
-        voiced_ratio = len(f0_voiced) / (len(f0) + 1e-9)
-
-        # Normalisasi ke [0,1] dengan skala 0–2000 Hz
-        f0_mean_n   = np.clip(f0_mean_raw   / 2000.0, 0, 1)
-        f0_median_n = np.clip(f0_median     / 2000.0, 0, 1)
-        f0_std_n    = np.clip(f0_std_raw    / 1000.0, 0, 1)
-        f0_range_n  = np.clip(f0_range_raw  / 2000.0, 0, 1)
-    else:
-        # Tidak ada voiced frame — suara tidak bernada
-        f0_mean_n = f0_median_n = f0_std_n = f0_range_n = voiced_ratio = 0.0
-
-    # --- Harmonic-to-Noise Ratio proxy ---
-    y_harm, y_perc = librosa.effects.hpss(y)
-    harm_energy = np.mean(y_harm ** 2)
-    perc_energy = np.mean(y_perc ** 2) + 1e-9
-    hnr_norm    = np.clip(harm_energy / perc_energy / 10.0, 0, 1)
-
-    # --- Formant proxy: rasio energi pita frekuensi ---
-    # Kucing: energi dominan di pita tinggi (>1000 Hz)
-    # Manusia: konsentrasi energi di 200–800 Hz (formant F1–F2)
-    stft_mag = np.abs(librosa.stft(y))
-    freqs    = librosa.fft_frequencies(sr=sr)
-
-    band_low  = np.mean(stft_mag[freqs <  500, :])
-    band_mid  = np.mean(stft_mag[(freqs >= 500) & (freqs < 1500), :])
-    band_high = np.mean(stft_mag[freqs >= 1500, :])
-    total_e   = band_low + band_mid + band_high + 1e-9
-
-    ratio_low  = band_low  / total_e
-    ratio_mid  = band_mid  / total_e
-    ratio_high = band_high / total_e
-
-    # ================================================================
-    # FEATURE VECTOR — bobot eksplisit:
-    #
-    # Pitch diberi bobot TINGGI (×6): perbedaan kucing vs manusia
-    # bisa 5× lipat di dimensi ini. Tanpa pembobotan kuat, 13 dim
-    # MFCC akan mendominasi dan mengaburkan sinyal pitch.
-    #
-    # Formant proxy (×4): distribusi energi frekuensi berbeda spesies.
-    # MFCC dikurangi ke ×0.5 agar tidak mendominasi.
-    # ================================================================
-    PITCH_WEIGHT   = 6.0
-    FORMANT_WEIGHT = 4.0
-    HNR_WEIGHT     = 2.0
-    MFCC_WEIGHT    = 0.5
-
-    feature_vector = np.concatenate([
-        # Pitch — paling diskriminatif antar spesies
-        [f0_mean_n   * PITCH_WEIGHT],
-        [f0_median_n * PITCH_WEIGHT],
-        [f0_std_n    * PITCH_WEIGHT * 0.5],
-        [f0_range_n  * PITCH_WEIGHT * 0.5],
-        [voiced_ratio],
-
-        # Distribusi energi frekuensi (formant proxy)
-        [ratio_low   * FORMANT_WEIGHT],
-        [ratio_mid   * FORMANT_WEIGHT],
-        [ratio_high  * FORMANT_WEIGHT],
-
-        # HNR
-        [hnr_norm    * HNR_WEIGHT],
-
-        # Spectral features
-        [centroid_m],
-        [rolloff_m],
-        [bandwidth_m],
-        [flatness_m],
-        [zcr_m],
+    spectral_texture = np.concatenate([
+        mfcc_mean / (np.max(np.abs(mfcc_mean)) + 1e-9),
+        mfcc_std  / (np.max(mfcc_std) + 1e-9),
         contrast_n,
-
-        # MFCC (bobot dikurangi)
-        mfcc_mean * MFCC_WEIGHT,
-        mfcc_std  * MFCC_WEIGHT * 0.5,
     ])
 
-    return feature_vector, y, sr
+    return {
+        'f0_median':        f0_median,
+        'f0_mean':          f0_mean,
+        'f0_std':           f0_std,
+        'voiced_ratio':     voiced_ratio,
+        'band_ratios':      band_ratios,
+        'spectral_texture': spectral_texture,
+        'mfcc_mean':        mfcc_mean,
+        'y':                y,
+        'sr':               sr,
+    }
 
 
-def spectral_distance(vec_a, vec_b):
-    # Cosine similarity: menangkap kesamaan "arah" vektor (shape)
-    cd      = cos_dist(vec_a, vec_b)
-    cos_sim = 1.0 - cd   # [0,1], 1 = identik
+def cat_similarity_score(feat_ref, feat_q):
+    PITCH_SIGMA = 350.0
+    delta_pitch = feat_q['f0_median'] - feat_ref['f0_median']
+    pitch_score = float(np.exp(-0.5 * (delta_pitch / PITCH_SIGMA) ** 2))
+    vr_q = feat_q['voiced_ratio']
+    vr_ref = feat_ref['voiced_ratio']
+    vr_factor = float(np.clip(vr_q / max(vr_ref, 0.15), 0.0, 1.0))
+    pitch_score_final = pitch_score * (0.7 + 0.3 * vr_factor)
 
-    # Euclidean similarity: sensitif terhadap MAGNITUDO perbedaan
-    # tanh(x/3) lebih cepat mendekati 1 saat jarak besar
-    euc_dist = euclidean(vec_a, vec_b)
-    euc_sim  = 1.0 - np.tanh(euc_dist / 3.0)
+    low = feat_q['band_ratios'][0]
+    mid_high = feat_q['band_ratios'][1] + feat_q['band_ratios'][2]
+    band_ratio = mid_high / low if low > 1e-6 else 10.0
+    k = 3.0
+    threshold = 1.2
+    band_score = 1.0 / (1.0 + np.exp(-k * (band_ratio - threshold)))
+    band_score = float(np.clip(band_score, 0.0, 1.0))
 
-    # Cosine 20% + Euclidean 80%
-    # Euclidean lebih dominan karena kita butuh sensitivitas magnitudo
-    similarity = 0.20 * cos_sim + 0.80 * euc_sim
+    tx_ref = feat_ref['spectral_texture']
+    tx_q = feat_q['spectral_texture']
+    min_len = min(len(tx_ref), len(tx_q))
+    try:
+        tex_cos = float(cos_dist(tx_ref[:min_len], tx_q[:min_len]))
+        tex_score = float(np.clip(1.0 - tex_cos, 0.0, 1.0))
+    except Exception:
+        tex_score = 0.5
 
-    return float(np.clip(similarity, 0.0, 1.0)), float(cd)
+    total = 0.50 * pitch_score_final + 0.40 * band_score + 0.10 * tex_score
+    total = float(np.clip(total, 0.0, 1.0))
+
+    return {
+        'total': total,
+        'pitch_score': pitch_score_final,
+        'band_score': band_score,
+        'tex_score': tex_score,
+        'f0_median_q': feat_q['f0_median'],
+        'f0_median_ref': feat_ref['f0_median'],
+        'voiced_ratio': feat_q['voiced_ratio'],
+        'band_ratios': feat_q['band_ratios'],
+    }
+
+
+def render_score_breakdown(result, label=""):
+    """Render HTML score breakdown card dengan aman."""
+    total = result['total']
+    ps = result['pitch_score']
+    bs = result['band_score']
+    ts = result['tex_score']
+    f0_q = result['f0_median_q']
+    f0_ref = result['f0_median_ref']
+
+    def bar_color(v):
+        if v >= 0.65: return "#00C060"
+        if v >= 0.40: return "#F0A000"
+        return "#C03030"
+
+    def pct(v):
+        return f"{v*100:.0f}%"
+
+    # Gunakan raw string dan pastikan tidak ada spasi yang merusak
+    html = f"""
+    <div class="score-breakdown">
+        <div style="font-size:0.7rem;color:#8A9AB0;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:0.7rem">
+            Breakdown Skor {label}
+        </div>
+        <div class="score-row">
+            <span class="score-label">🎵 Pitch Score <span style="color:#AAB8C8;font-size:0.72rem">(50%)</span></span>
+            <span class="score-val">{ps:.3f}</span>
+        </div>
+        <div class="score-bar-wrap">
+            <div class="score-bar-fill" style="width:{pct(ps)}; background:{bar_color(ps)};"></div>
+        </div>
+        <div style="font-size:0.72rem;color:#8A9AB0;margin-bottom:0.8rem">
+            F0 rekaman: <b>{f0_q:.0f} Hz</b> · F0 referensi: <b>{f0_ref:.0f} Hz</b>
+            · selisih <b>{abs(f0_q - f0_ref):.0f} Hz</b>
+        </div>
+        <div class="score-row">
+            <span class="score-label">📊 Band Energy Score <span style="color:#AAB8C8;font-size:0.72rem">(40%)</span></span>
+            <span class="score-val">{bs:.3f}</span>
+        </div>
+        <div class="score-bar-wrap">
+            <div class="score-bar-fill" style="width:{pct(bs)}; background:{bar_color(bs)};"></div>
+        </div>
+        <div class="score-row">
+            <span class="score-label">🔬 Spectral Texture Score <span style="color:#AAB8C8;font-size:0.72rem">(10%)</span></span>
+            <span class="score-val">{ts:.3f}</span>
+        </div>
+        <div class="score-bar-wrap">
+            <div class="score-bar-fill" style="width:{pct(ts)}; background:{bar_color(ts)};"></div>
+        </div>
+        <div style="border-top:1px solid rgba(0,0,0,0.07); margin-top:0.8rem; padding-top:0.7rem">
+            <div class="score-row" style="margin-bottom:0">
+                <span style="font-weight:700;color:#1A1A2E;font-size:0.9rem">TOTAL</span>
+                <span style="font-family:'Comfortaa',monospace;font-weight:700;font-size:1.1rem;color:{bar_color(total)}">{total:.3f}</span>
+            </div>
+        </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def plot_spectral_comparison(file_a, file_b, label_a="Audio A", label_b="Audio B", sr_target=16000):
     y_a, sr = librosa.load(file_a, sr=sr_target)
     y_b, _  = librosa.load(file_b, sr=sr_target)
-
     n_mfcc = 13
     mfcc_a = np.mean(librosa.feature.mfcc(y=y_a, sr=sr, n_mfcc=n_mfcc), axis=1)
     mfcc_b = np.mean(librosa.feature.mfcc(y=y_b, sr=sr, n_mfcc=n_mfcc), axis=1)
-
     cent_a = librosa.feature.spectral_centroid(y=y_a, sr=sr)[0]
     cent_b = librosa.feature.spectral_centroid(y=y_b, sr=sr)[0]
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 3.5))
-
     x = np.arange(n_mfcc)
     width = 0.35
     ax1.bar(x - width/2, mfcc_a, width, label=label_a, color='#00A050', alpha=0.8)
@@ -480,7 +522,25 @@ def plot_spectral_comparison(file_a, file_b, label_a="Audio A", label_b="Audio B
     ax2.set_ylabel("Frekuensi (Hz)")
     ax2.legend(fontsize=8)
     ax2.grid(True)
+    fig.tight_layout()
+    return fig
 
+
+def plot_band_energy_comparison(feat_ref, feat_q, label_q="Query"):
+    labels = ['Low\n(<500 Hz)', 'Mid\n(500–1500 Hz)', 'High\n(>1500 Hz)']
+    br_ref = feat_ref['band_ratios']
+    br_q   = feat_q['band_ratios']
+    x = np.arange(3)
+    width = 0.35
+    fig, ax = plt.subplots(figsize=(6, 3))
+    ax.bar(x - width/2, br_ref * 100, width, label='Cat.mp3 (referensi)', color='#0090C0', alpha=0.85)
+    ax.bar(x + width/2, br_q  * 100, width, label=label_q,                color='#FF6B35', alpha=0.85)
+    ax.set_title("Distribusi Energi per Band Frekuensi")
+    ax.set_ylabel("Proporsi Energi (%)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.legend(fontsize=8)
+    ax.grid(True, axis='y')
     fig.tight_layout()
     return fig
 
@@ -492,7 +552,7 @@ st.markdown("""
     <div class="hero-title">Voice <span class="green">Lab</span></div>
     <p class="hero-desc">
         Jelajahi dunia <strong style="color:#1A1A2E">audio processing</strong> secara interaktif —
-        dari gelombang sintetik sampai pengenalan suara berbasis <strong style="color:#00A050">Spectral Distance</strong>.
+        dari gelombang sintetik sampai pengenalan suara berbasis <strong style="color:#00A050">Cat-Similarity Score v4</strong>.
         Rekam, bandingkan, dan rasakan sendiri cara komputer "mendengar".
     </p>
     <div class="waveform-deco">
@@ -523,7 +583,6 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
 
 # ========== BAGIAN 1: APA ITU AUDIO? ==========
 st.header("Apa Itu Audio?")
@@ -573,9 +632,8 @@ with st.expander("🐱 Contoh Asli: Waveform Suara Kucing"):
         st.pyplot(fig_cat)
         st.caption(f"Durasi total: {duration:.2f} detik. Bentuknya lebih acak dibanding sinyal sintetik.")
     else:
-        st.warning(f"File {cat_file} tidak ditemukan.")
+        st.warning(f"File Cat.mp3 tidak ditemukan.")
         st.info("Pastikan file Cat.mp3 berada di folder yang sama dengan aplikasi ini.")
-
 
 # ========== BAGIAN 2: BAGAIMANA KOMPUTER PROSES SUARA ==========
 st.header("Bagaimana Komputer Memproses Suara?")
@@ -597,8 +655,7 @@ with c5:
 with c6:
     st.markdown('<div class="step-card"><div class="step-num">STEP 06</div><div class="step-title">MFCC</div><div class="step-desc">Fitur ringkas yang meniru persepsi pendengaran manusia</div></div>', unsafe_allow_html=True)
 
-
-# ========== LOAD FILE SUARA KUCING ==========
+# Load data kucing untuk contoh
 cat_file = "Cat.mp3"
 if os.path.exists(cat_file):
     y_full, sr = librosa.load(cat_file, sr=16000)
@@ -618,8 +675,7 @@ else:
 
 COLORS = ['#00A050', '#FF6B35', '#6030B0', '#C08000', '#0090C0']
 
-
-# ========== LANGKAH 1: SAMPLING ==========
+# ---------- Langkah 1: Sampling ----------
 st.subheader("1 — Sampling")
 st.markdown('<span class="badge">Analog → Digital</span>', unsafe_allow_html=True)
 st.markdown('<p style="color:#556070; font-size:0.9rem; line-height:1.8"><strong style="color:#1A1A2E">Sampling</strong> mengambil nilai amplitudo pada interval waktu tetap. <strong style="color:#00A050">Sample rate</strong> (Hz) = jumlah sampel per detik.</p>', unsafe_allow_html=True)
@@ -658,8 +714,7 @@ if cat_available:
         st.session_state['t_sample_kucing'] = t_sample_kucing
         st.session_state['sr_ilustrasi'] = sr_ilustrasi
 
-
-# ========== LANGKAH 2: WAVEFORM ==========
+# ---------- Langkah 2: Waveform ----------
 st.subheader("2 — Representasi Digital (Waveform)")
 st.markdown('<span class="badge">Angka → Visualisasi</span>', unsafe_allow_html=True)
 st.markdown('<p style="color:#556070; font-size:0.9rem; line-height:1.8">Angka-angka hasil sampling diplot dan dihubungkan garis → <strong style="color:#00A050">Waveform</strong>, bentuk digital suara yang disimpan komputer.</p>', unsafe_allow_html=True)
@@ -686,8 +741,7 @@ if cat_available and 'y_sample_kucing' in st.session_state:
         fig4.tight_layout()
         st.pyplot(fig4)
 
-
-# ========== LANGKAH 3: WINDOWING ==========
+# ---------- Langkah 3: Windowing ----------
 st.subheader("3 — Windowing")
 st.markdown('<span class="badge">Segmentasi</span><span class="badge blue">Frame 25 ms</span>', unsafe_allow_html=True)
 st.markdown('<p style="color:#556070; font-size:0.9rem; line-height:1.8">Suara panjang dipotong jadi <strong style="color:#00A050">frame pendek 20–50 ms</strong> yang tumpang tindih, lalu setiap frame dianalisis dengan FFT.</p>', unsafe_allow_html=True)
@@ -722,8 +776,7 @@ if cat_available:
         fig6.tight_layout()
         st.pyplot(fig6)
 
-
-# ========== LANGKAH 4: FFT ==========
+# ---------- Langkah 4: FFT ----------
 st.subheader("4 — FFT (Fast Fourier Transform)")
 st.markdown('<span class="badge">Waktu → Frekuensi</span>', unsafe_allow_html=True)
 st.markdown('<p style="color:#556070; font-size:0.9rem; line-height:1.8"><strong style="color:#00A050">FFT</strong> mengubah frame dari domain waktu menjadi <strong style="color:#1A1A2E">spektrum frekuensi</strong> — menunjukkan frekuensi apa yang dominan.</p>', unsafe_allow_html=True)
@@ -761,8 +814,7 @@ if cat_available:
         st.pyplot(fig8)
         st.caption("Banyak puncak frekuensi — suara kucing memang kompleks.")
 
-
-# ========== LANGKAH 5: SPEKTROGRAM ==========
+# ---------- Langkah 5: Spektrogram ----------
 st.subheader("5 — Spektrogram")
 st.markdown('<span class="badge">Waktu + Frekuensi</span><span class="badge purple">2D Heat Map</span>', unsafe_allow_html=True)
 st.markdown('<p style="color:#556070; font-size:0.9rem; line-height:1.8"><strong style="color:#00A050">Spektrogram</strong> = hasil FFT banyak frame berurutan. Sumbu X = waktu, Y = frekuensi, warna = kekuatan sinyal.</p>', unsafe_allow_html=True)
@@ -790,8 +842,7 @@ if cat_available:
         st.pyplot(fig10)
         st.caption("Distribusi frekuensi berubah seiring waktu — kompleks dan dinamis.")
 
-
-# ========== LANGKAH 6: MFCC ==========
+# ---------- Langkah 6: MFCC ----------
 st.subheader("6 — MFCC (Mel-Frequency Cepstral Coefficients)")
 st.markdown('<span class="badge">Feature Extraction</span><span class="badge blue">13 Koefisien</span>', unsafe_allow_html=True)
 st.markdown('<p style="color:#556070; font-size:0.9rem; line-height:1.8"><strong style="color:#00A050">MFCC</strong> adalah fitur ringkas yang meniru persepsi pendengaran manusia. 13–20 koefisien per frame — inilah yang dipakai AI untuk pengenalan suara.</p>', unsafe_allow_html=True)
@@ -816,47 +867,38 @@ if cat_available:
         st.pyplot(fig12)
         st.caption("MFCC inilah yang dibandingkan untuk mengenali atau mencocokkan suara.")
 
-
 # ========== BAGIAN 3: VOICE SIMILARITY CHALLENGE ==========
 st.header("Pengenalan Suara — Voice Similarity Challenge")
 
 st.markdown("""
 <div style="background:#F0FFF8; border:1px solid rgba(0,180,80,0.15); border-radius:14px; padding:1.2rem 1.6rem; margin-bottom:1.5rem">
 <p style="color:#556070; margin:0; font-size:0.92rem; line-height:1.8">
-Sistem menggunakan <strong style="color:#00A050">Spectral Distance</strong> untuk mengukur kemiripan suara.
-Fitur yang diekstrak meliputi <strong style="color:#1A1A2E">Pitch/F0 (bobot ×6), Formant Proxy (bobot ×4),
-HNR (bobot ×2), MFCC, Spectral Centroid, Contrast, Flatness, dan ZCR</strong> — digabung menjadi satu
-feature vector, lalu dihitung jaraknya menggunakan
-<strong style="color:#00A050">Cosine (20%) + Weighted Euclidean (80%)</strong>.
-Skor: <strong style="color:#1A1A2E">0–1</strong> (1 = identik secara spektral).
+Sistem menggunakan <strong style="color:#00A050">Cat-Similarity Score v4</strong> — metrik tiga-komponen
+yang dirancang khusus agar <strong style="color:#1A1A2E">kucing vs kucing mendapat skor mendekati 1</strong>,
+manusia yang berusaha niru kucing bisa menjangkau skor <strong style="color:#F0A000">0.40–0.70</strong>,
+dan manusia yang ngomong biasa otomatis mendapat skor <strong style="color:#C03030">di bawah 0.30</strong>.
+Komponen: <em>Pitch/F0 Score (50%)</em>, <em>Band Energy Score (40%)</em>, <em>Spectral Texture (10%)</em>.
 </p>
 </div>
 """, unsafe_allow_html=True)
 
-with st.expander("📐 Cara Kerja Spectral Distance (v2 — Species-Aware)"):
+with st.expander("📐 Cara Kerja Cat-Similarity Score v4"):
     st.markdown("""
-    **Spectral Distance v2** dirancang khusus untuk membedakan spesies, bukan hanya timbre.
+    **Tiga komponen independen** — masing-masing menangkap aspek berbeda dari "kekucingan" suara:
 
-    **Fitur & bobot:**
-    | Fitur | Bobot | Alasan |
+    | Komponen | Bobot | Cara Kerja |
     |---|---|---|
-    | **Pitch / F0** | ×6 | Kucing 600–1500 Hz vs manusia 80–300 Hz (5–10× beda) |
-    | **Formant proxy** | ×4 | Rasio energi <500 Hz / 500–1500 Hz / >1500 Hz berbeda spesies |
-    | **HNR** | ×2 | Harmonicity suara berbeda antar spesies |
-    | **MFCC** | ×0.5 | Dikurangi agar tidak mengaburkan sinyal pitch |
-    | Spectral centroid/rolloff/flatness/ZCR | ×1 | Fitur pelengkap |
+    | **Pitch / F0 Score** | 50% | Gaussian similarity: `exp(-0.5 * ((F0_kamu − F0_kucing) / 350)²)`. Kucing ≈600–1500 Hz, manusia ≈80–300 Hz → selisih besar = skor sangat rendah |
+    | **Band Energy Score** | 40% | Rasio energi (mid+high)/low yang di-sigmoid. Kucing dominan di mid+high, manusia di low. |
+    | **Spectral Texture** | 10% | Cosine similarity MFCC + Spectral Contrast ternormalisasi — hanya pelengkap |
 
-    **Metode jarak:**
-    - **80% Euclidean** `tanh(d/3)`: sensitif terhadap perbedaan magnitudo besar (pitch)
-    - **20% Cosine**: menangkap perbedaan "bentuk" distribusi spektral
-
-    **Mengapa versi lama gagal?**
-    Versi sebelumnya menggunakan bobot pitch ×3 dan Euclidean ×0.65 dengan `tanh(d/5)`.
-    Setelah normalisasi, nilai pitch hanya ~0.04–0.08, sehingga 13 dimensi MFCC masih mendominasi
-    dan membuat manusia terlihat "mirip" kucing. Versi baru memperkuat pitch 2× dan memperketat
-    fungsi Euclidean agar lebih sensitif terhadap perbedaan besar.
+    **Ekspektasi skor:**
+    - 🐱 Kucing vs Kucing: **0.75–0.97**
+    - 🎭 Manusia usaha niru kucing: **0.40–0.70**
+    - 🙋 Manusia ngomong biasa: **0.05–0.30**
     """)
 
+# Load referensi Cat.mp3
 cat1_path = "Cat.mp3"
 cat2_path = "Cat2.mp3"
 
@@ -865,7 +907,7 @@ if not os.path.exists(cat1_path):
     st.stop()
 
 try:
-    feat_ref, _, _ = extract_spectral_features(cat1_path)
+    feat_ref = extract_features_v3(cat1_path)
 except Exception as e:
     st.error(f"Gagal memproses Cat.mp3: {e}")
     st.stop()
@@ -891,38 +933,54 @@ with col_cat2:
 if cat2_available:
     st.markdown("<br>", unsafe_allow_html=True)
     try:
-        feat_cat2, _, _ = extract_spectral_features(cat2_path)
-        sim_cat2, dist_cat2 = spectral_distance(feat_ref, feat_cat2)
+        feat_cat2 = extract_features_v3(cat2_path)
+        result_cat2 = cat_similarity_score(feat_ref, feat_cat2)
 
         _, col_hasil_tengah, _ = st.columns([1, 2, 1])
         with col_hasil_tengah:
-            st.metric("Skor Kemiripan Spektral", f"{sim_cat2:.3f}")
-            st.caption(f"Cosine Distance: {dist_cat2:.4f}")
-            if sim_cat2 > 0.75:
-                st.success("✅ **Sangat mirip** secara spektral — karakteristik frekuensi hampir sama.")
-            elif sim_cat2 > 0.55:
-                st.info("🔊 **Cukup mirip** secara spektral, namun ada perbedaan karakter frekuensi.")
+            st.metric("Cat-Similarity Score v4", f"{result_cat2['total']:.3f}")
+            if result_cat2['total'] > 0.75:
+                st.success("✅ **Sangat mirip** — distribusi pitch & frekuensi hampir identik.")
+            elif result_cat2['total'] > 0.55:
+                st.info("🔊 **Cukup mirip** — ada perbedaan karakter frekuensi.")
             else:
-                st.warning("⚠️ **Berbeda** secara spektral — distribusi frekuensi cukup jauh berbeda.")
+                st.warning("⚠️ **Berbeda** — distribusi frekuensi cukup jauh berbeda.")
+
+        render_score_breakdown(result_cat2, "Cat2 vs Cat1")
 
         st.markdown("**📊 Visualisasi Perbandingan Spektral**")
         fig_cmp = plot_spectral_comparison(cat1_path, cat2_path, "Cat 1", "Cat 2")
         st.pyplot(fig_cmp)
+
+        # GRAFIK BAND ENERGY DITAMPILKAN FULL WIDTH, INTERPRETASI DI BAWAH
+        st.markdown("**📊 Perbandingan Distribusi Energi**")
+        fig_band = plot_band_energy_comparison(feat_ref, feat_cat2, "Cat 2")
+        st.pyplot(fig_band)
+        st.markdown("""
+        <div style="background:#F0FFF8;border:1px solid rgba(0,180,80,0.12);border-radius:10px;padding:0.9rem 1.1rem;margin-top:0.5rem">
+            <div style="font-size:0.7rem;color:#8A9AB0;letter-spacing:1px;text-transform:uppercase;margin-bottom:0.6rem">Interpretasi Band Energy</div>
+            <p style="color:#556070;font-size:0.82rem;margin:0;line-height:1.7">
+            Kucing memiliki energi dominan di band <strong>Mid & High (>500 Hz)</strong>
+            karena pitch fundamentalnya berada di 600–1500 Hz.<br><br>
+            Manusia normal memiliki energi dominan di band <strong>Low (<500 Hz)</strong>
+            karena pitch vokal manusia hanya 80–300 Hz.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         st.caption("Kiri: perbandingan mean MFCC per koefisien. Kanan: Spectral Centroid seiring waktu.")
     except Exception as e:
-        st.error(f"Gagal menghitung spectral distance: {e}")
+        st.error(f"Gagal menghitung skor: {e}")
 
-
-# ========== TANTANGAN ==========
+# ========== TANTANGAN MANUSIA ==========
 st.subheader("🎙️ Tantangan: Siapa yang Lebih Mirip Kucing?")
 st.markdown("""
 <div style="background:#F0FFF8; border:1px solid rgba(0,180,80,0.12); border-radius:12px; padding:1rem 1.4rem; margin-bottom:1.2rem">
 <p style="color:#556070; margin:0; font-size:0.88rem; line-height:1.7">
-Rekam dua suara berbeda. Sistem akan menghitung <strong style="color:#00A050">Spectral Distance v2</strong>
-antara rekaman kamu dan <strong style="color:#00A050">Cat.mp3</strong> —
-semakin mirip pitch dan distribusi frekuensinya, semakin tinggi skornya!
-Manusia normal biasanya mendapat skor <strong style="color:#C03030">di bawah 0.40</strong>,
-sementara sesama kucing akan mendapat <strong style="color:#00A050">di atas 0.65</strong>.
+Rekam dua suara berbeda. Sistem akan menghitung <strong style="color:#00A050">Cat-Similarity Score v4</strong>
+antara rekaman kamu dan <strong style="color:#00A050">Cat.mp3</strong>.
+Kunci utamanya ada di <strong style="color:#1A1A2E">pitch</strong> — coba keluarkan suara setinggi
+dan setajam mungkin seperti kucing mengeong! Skor breakdown akan menampilkan F0 pitch-mu
+vs F0 kucing secara transparan.
 </p>
 </div>
 """, unsafe_allow_html=True)
@@ -930,10 +988,45 @@ sementara sesama kucing akan mendapat <strong style="color:#00A050">di atas 0.65
 
 @st.fragment
 def rekaman_challenge_section():
-    if "human1_audio" not in st.session_state:    st.session_state.human1_audio = None
-    if "human2_audio" not in st.session_state:    st.session_state.human2_audio = None
+    # Inisialisasi state
+    if "human1_audio" not in st.session_state:     st.session_state.human1_audio = None
+    if "human2_audio" not in st.session_state:     st.session_state.human2_audio = None
+    if "human1_feat" not in st.session_state:      st.session_state.human1_feat = None
+    if "human2_feat" not in st.session_state:      st.session_state.human2_feat = None
+    if "human1_result" not in st.session_state:    st.session_state.human1_result = None
+    if "human2_result" not in st.session_state:    st.session_state.human2_result = None
     if "human1_processed" not in st.session_state: st.session_state.human1_processed = False
     if "human2_processed" not in st.session_state: st.session_state.human2_processed = False
+    if "reset_requested" not in st.session_state:  st.session_state.reset_requested = False
+
+    # ---------- PROSES RESET DENGAN LOADING SPINNER (PERBAIKAN) ----------
+    if st.session_state.reset_requested:
+        with st.spinner("🔄 Mereset rekaman..."):
+            # Hapus file sementara
+            for key in ['human1_audio', 'human2_audio']:
+                temp_path = st.session_state.get(key)
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+            # *** GANTI del DENGAN MENGATUR ULANG NILAI DEFAULT ***
+            st.session_state.human1_audio = None
+            st.session_state.human2_audio = None
+            st.session_state.human1_feat = None
+            st.session_state.human2_feat = None
+            st.session_state.human1_result = None
+            st.session_state.human2_result = None
+            st.session_state.human1_processed = False
+            st.session_state.human2_processed = False
+            # Hapus juga key input agar widget audio_input bersih
+            for k in ['human1_input', 'human2_input']:
+                if k in st.session_state:
+                    del st.session_state[k]   # aman karena ini hanya widget key
+            # Matikan flag reset
+            st.session_state.reset_requested = False
+            time.sleep(1)  # sedikit jeda agar spinner terlihat
+        # Setelah spinner selesai, fragment otomatis me-render ulang tampilan bersih
 
     col_h1, col_h2 = st.columns(2)
 
@@ -941,141 +1034,142 @@ def rekaman_challenge_section():
         st.markdown("**👤 Manusia 1**")
         audio1 = st.audio_input("Rekam suara tiruan kucing (Manusia 1)", key="human1_input")
         if audio1 is not None:
-            with st.spinner("⏳ Menghitung Spectral Distance Manusia 1..."):
+            with st.spinner("⏳ Menghitung Cat-Similarity Score..."):
                 temp1 = "temp_human1.wav"
                 with open(temp1, "wb") as f:
                     f.write(audio1.getbuffer())
                 try:
-                    feat1, _, _ = extract_spectral_features(temp1)
-                    sim1, dist1 = spectral_distance(feat_ref, feat1)
-                    st.session_state.human1_audio = (temp1, feat1, sim1, dist1)
+                    feat1   = extract_features_v3(temp1)
+                    result1 = cat_similarity_score(feat_ref, feat1)
+                    st.session_state.human1_audio   = temp1
+                    st.session_state.human1_feat    = feat1
+                    st.session_state.human1_result  = result1
                     st.session_state.human1_processed = True
-                    st.metric("Skor Spektral vs Cat.mp3", f"{sim1:.3f}")
-                    st.caption(f"Cosine Distance: {dist1:.4f}")
-                    if sim1 < 0.40:
-                        st.info("🙋 Terdeteksi sebagai **manusia** — pitch terlalu rendah untuk kucing.")
-                    elif sim1 < 0.60:
-                        st.warning("🐱 Lumayan! Sedikit mirip kucing, tapi masih terdengar manusiawi.")
-                    else:
-                        st.success("🐱 Luar biasa! Suaramu mendekati spektrum kucing!")
                 except Exception as e:
                     st.error(f"Gagal memproses: {e}")
                     if os.path.exists(temp1): os.remove(temp1)
-        elif st.session_state.human1_processed:
-            _, _, sim1, dist1 = st.session_state.human1_audio
-            st.metric("Skor Spektral vs Cat.mp3", f"{sim1:.3f}")
-            st.caption(f"Cosine Distance: {dist1:.4f}")
+
+        if st.session_state.human1_processed and st.session_state.human1_result:
+            result1 = st.session_state.human1_result
+            total1  = result1['total']
+            st.metric("Cat-Similarity Score", f"{total1:.3f}")
+            if total1 < 0.30:
+                st.info("🙋 Terdeteksi sebagai **manusia** — pitch terlalu rendah untuk kucing.")
+            elif total1 < 0.55:
+                st.warning("🐱 Lumayan! Sedikit mirip kucing, tapi masih terdengar manusiawi.")
+            else:
+                st.success("🐱 Luar biasa! Suaramu mendekati spektrum kucing!")
+            render_score_breakdown(result1, "Manusia 1")
 
     with col_h2:
         st.markdown("**👤 Manusia 2**")
         audio2 = st.audio_input("Rekam suara tiruan kucing (Manusia 2)", key="human2_input")
         if audio2 is not None:
-            with st.spinner("⏳ Menghitung Spectral Distance Manusia 2..."):
+            with st.spinner("⏳ Menghitung Cat-Similarity Score..."):
                 temp2 = "temp_human2.wav"
                 with open(temp2, "wb") as f:
                     f.write(audio2.getbuffer())
                 try:
-                    feat2, _, _ = extract_spectral_features(temp2)
-                    sim2, dist2 = spectral_distance(feat_ref, feat2)
-                    st.session_state.human2_audio = (temp2, feat2, sim2, dist2)
+                    feat2   = extract_features_v3(temp2)
+                    result2 = cat_similarity_score(feat_ref, feat2)
+                    st.session_state.human2_audio   = temp2
+                    st.session_state.human2_feat    = feat2
+                    st.session_state.human2_result  = result2
                     st.session_state.human2_processed = True
-                    st.metric("Skor Spektral vs Cat.mp3", f"{sim2:.3f}")
-                    st.caption(f"Cosine Distance: {dist2:.4f}")
-                    if sim2 < 0.40:
-                        st.info("🙋 Terdeteksi sebagai **manusia** — pitch terlalu rendah untuk kucing.")
-                    elif sim2 < 0.60:
-                        st.warning("🐱 Lumayan! Sedikit mirip kucing, tapi masih terdengar manusiawi.")
-                    else:
-                        st.success("🐱 Luar biasa! Suaramu mendekati spektrum kucing!")
                 except Exception as e:
                     st.error(f"Gagal memproses: {e}")
                     if os.path.exists(temp2): os.remove(temp2)
-        elif st.session_state.human2_processed:
-            _, _, sim2, dist2 = st.session_state.human2_audio
-            st.metric("Skor Spektral vs Cat.mp3", f"{sim2:.3f}")
-            st.caption(f"Cosine Distance: {dist2:.4f}")
 
+        if st.session_state.human2_processed and st.session_state.human2_result:
+            result2 = st.session_state.human2_result
+            total2  = result2['total']
+            st.metric("Cat-Similarity Score", f"{total2:.3f}")
+            if total2 < 0.30:
+                st.info("🙋 Terdeteksi sebagai **manusia** — pitch terlalu rendah untuk kucing.")
+            elif total2 < 0.55:
+                st.warning("🐱 Lumayan! Sedikit mirip kucing, tapi masih terdengar manusiawi.")
+            else:
+                st.success("🐱 Luar biasa! Suaramu mendekati spektrum kucing!")
+            render_score_breakdown(result2, "Manusia 2")
+
+    # ── HASIL AKHIR ──
     if st.session_state.human1_processed and st.session_state.human2_processed:
         st.markdown("---")
         st.markdown("### 🏆 Hasil")
 
-        _, _, sim1, dist1 = st.session_state.human1_audio
-        _, _, sim2, dist2 = st.session_state.human2_audio
-        temp1 = st.session_state.human1_audio[0]
-        temp2 = st.session_state.human2_audio[0]
+        result1 = st.session_state.human1_result
+        result2 = st.session_state.human2_result
+        total1  = result1['total']
+        total2  = result2['total']
 
         col_r1, col_r2, col_r3 = st.columns(3)
         with col_r1:
-            st.metric("Manusia 1", f"{sim1:.3f}", delta=f"{sim1 - sim2:+.3f} vs M2")
+            st.metric("Manusia 1", f"{total1:.3f}", delta=f"{total1 - total2:+.3f} vs M2")
         with col_r2:
-            st.metric("Manusia 2", f"{sim2:.3f}", delta=f"{sim2 - sim1:+.3f} vs M1")
+            st.metric("Manusia 2", f"{total2:.3f}", delta=f"{total2 - total1:+.3f} vs M1")
         with col_r3:
-            winner = "Manusia 1 🥇" if sim1 > sim2 else ("Manusia 2 🥇" if sim2 > sim1 else "Seri 🤝")
+            winner = "Manusia 1 🥇" if total1 > total2 else ("Manusia 2 🥇" if total2 > total1 else "Seri 🤝")
             st.metric("Pemenang", winner)
 
-        if sim1 > sim2:
-            st.success(f"✅ **Manusia 1 menang!** Spektrum suaranya lebih dekat ke kucing (skor {sim1:.3f} vs {sim2:.3f}).")
-        elif sim2 > sim1:
-            st.success(f"✅ **Manusia 2 menang!** Spektrum suaranya lebih dekat ke kucing (skor {sim2:.3f} vs {sim1:.3f}).")
+        if total1 > total2:
+            st.success(f"✅ **Manusia 1 menang!** Skor {total1:.3f} vs {total2:.3f} — suaranya lebih mendekati kucing.")
+        elif total2 > total1:
+            st.success(f"✅ **Manusia 2 menang!** Skor {total2:.3f} vs {total1:.3f} — suaranya lebih mendekati kucing.")
         else:
-            st.info("🤝 **Seri!** Kedua suara memiliki jarak spektral yang sama ke Cat.mp3.")
+            st.info("🤝 **Seri!** Kedua suara punya Cat-Similarity Score yang sama.")
 
-        st.markdown("**📊 Perbandingan Spektral: Manusia 1 vs Manusia 2 vs Kucing**")
+        # Band energy comparison 3-way
+        st.markdown("**📊 Perbandingan Band Energy: Manusia 1 vs Manusia 2 vs Kucing**")
+        feat1 = st.session_state.human1_feat
+        feat2 = st.session_state.human2_feat
+        if feat1 and feat2:
+            labels = ['Low\n(<500 Hz)', 'Mid\n(500–1500 Hz)', 'High\n(>1500 Hz)']
+            x = np.arange(3)
+            width = 0.25
+            fig_band3, ax_band3 = plt.subplots(figsize=(8, 3.2))
+            ax_band3.bar(x - width, feat_ref['band_ratios'] * 100, width, label='Cat.mp3 (referensi)', color='#0090C0', alpha=0.85)
+            ax_band3.bar(x,         feat1['band_ratios']    * 100, width, label=f'Manusia 1 ({total1:.3f})',           color='#00A050', alpha=0.85)
+            ax_band3.bar(x + width, feat2['band_ratios']    * 100, width, label=f'Manusia 2 ({total2:.3f})',           color='#FF6B35', alpha=0.85)
+            ax_band3.set_xticks(x); ax_band3.set_xticklabels(labels)
+            ax_band3.set_ylabel("Proporsi Energi (%)")
+            ax_band3.set_title("Distribusi Energi per Band — 3-Way Comparison")
+            ax_band3.legend(fontsize=8); ax_band3.grid(True, axis='y')
+            fig_band3.tight_layout()
+            st.pyplot(fig_band3)
+
+        # MFCC comparison
+        st.markdown("**📈 Perbandingan MFCC: Manusia 1 vs Manusia 2 vs Kucing**")
         try:
-            y1,    sr1    = librosa.load(temp1,     sr=16000)
-            y2,    sr2    = librosa.load(temp2,     sr=16000)
-            y_ref, sr_ref = librosa.load(cat1_path, sr=16000)
-
-            mfcc1  = np.mean(librosa.feature.mfcc(y=y1,    sr=sr1,    n_mfcc=13), axis=1)
-            mfcc2  = np.mean(librosa.feature.mfcc(y=y2,    sr=sr2,    n_mfcc=13), axis=1)
-            mfcc_r = np.mean(librosa.feature.mfcc(y=y_ref, sr=sr_ref, n_mfcc=13), axis=1)
+            mfcc1  = feat1['mfcc_mean']
+            mfcc2  = feat2['mfcc_mean']
+            mfcc_r = feat_ref['mfcc_mean']
 
             x = np.arange(13)
             fig_win, ax_win = plt.subplots(figsize=(10, 3.5))
             ax_win.plot(x, mfcc_r, color='#0090C0', linewidth=2,   marker='o', markersize=5, label='Cat.mp3 (referensi)')
-            ax_win.plot(x, mfcc1,  color='#00A050', linewidth=1.5,  marker='s', markersize=4, label=f'Manusia 1 (skor {sim1:.3f})')
-            ax_win.plot(x, mfcc2,  color='#FF6B35', linewidth=1.5,  marker='^', markersize=4, label=f'Manusia 2 (skor {sim2:.3f})')
+            ax_win.plot(x, mfcc1,  color='#00A050', linewidth=1.5,  marker='s', markersize=4, label=f'Manusia 1 ({total1:.3f})')
+            ax_win.plot(x, mfcc2,  color='#FF6B35', linewidth=1.5,  marker='^', markersize=4, label=f'Manusia 2 ({total2:.3f})')
             ax_win.set_title("Mean MFCC — Manusia 1 vs Manusia 2 vs Kucing")
             ax_win.set_xlabel("Koefisien MFCC ke-")
             ax_win.set_ylabel("Nilai rata-rata")
-            ax_win.set_xticks(x)
-            ax_win.set_xticklabels([str(i+1) for i in x])
-            ax_win.legend(fontsize=8)
-            ax_win.grid(True)
+            ax_win.set_xticks(x); ax_win.set_xticklabels([str(i+1) for i in x])
+            ax_win.legend(fontsize=8); ax_win.grid(True)
             fig_win.tight_layout()
             st.pyplot(fig_win)
             st.caption("Kurva yang lebih dekat ke biru (Cat.mp3) = spektrum lebih mirip kucing.")
         except Exception as e:
-            st.warning(f"Visualisasi perbandingan tidak tersedia: {e}")
+            st.warning(f"Visualisasi MFCC tidak tersedia: {e}")
 
+    # Tombol reset dengan loading spinner
     if st.session_state.human1_processed or st.session_state.human2_processed:
         st.markdown("<br>", unsafe_allow_html=True)
         col_space1, col_btn, col_space3 = st.columns([1, 1, 1])
         with col_btn:
             if st.button("🔄 Reset Rekaman", key="reset_human", use_container_width=True):
-                # 1. Hapus file audio temporary
-                for key in ['human1_audio', 'human2_audio']:
-                    if st.session_state.get(key):
-                        try: os.remove(st.session_state[key][0])
-                        except: pass
-                
-                # 2. Reset variabel status kustom
-                st.session_state.human1_audio     = None
-                st.session_state.human2_audio     = None
-                st.session_state.human1_processed = False
-                st.session_state.human2_processed = False
-                
-                # 3. Hapus memori bawaan widget audio agar antarmukanya ikut kosong
-                if "human1_input" in st.session_state:
-                    del st.session_state["human1_input"]
-                if "human2_input" in st.session_state:
-                    del st.session_state["human2_input"]
-                    
-                # 4. Muat ulang halaman
-                st.rerun()
+                st.session_state.reset_requested = True
+                st.rerun()  # trigger fragment re-run untuk menampilkan spinner
 
 rekaman_challenge_section()
-
 
 # ========== EXPLORE SECTION ==========
 st.markdown("---")
